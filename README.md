@@ -1,7 +1,8 @@
 # YYB-Scrip-smallfawn
 YYB的协议适配
 
-##原作者
+## 原项目出处
+
 https://github.com/smallfawn/QLScriptPublic.git
 
 ## 免责声明
