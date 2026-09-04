@@ -1,88 +1,87 @@
 # YYB-Scrip-smallfawn
 
-将 `smallfawn/QLScriptPublic` 中的微信小程序脚本适配到 YYB Go。适配仅替换旧微信服务接入层，保留原脚本业务接口、字段、签名、任务流程和兼容入口。
+青龙脚本订阅仓库，当前脚本统一放在 `wx-script/`，用于对接 YYB Go 的微信小程序账号。
 
-> 当前版本已通过静态审查、JavaScript/Python 语法检查和 UTF-8 检查。未连接真实 YYB 与各业务服务的脚本，不代表已经完成线上联调。
-
-## 目录
-
-```text
-wxapp/batch-01..06/  六批共 30 个适配脚本
-wxapp/tools/env.js   批量脚本必须保留的公共模块
-standalone/          单独完成适配的脚本
-modules/             可选的 YYB 兼容模块
-dependencies/        青龙依赖清单
-docs/                脚本目录和适配基线
-```
-
-完整脚本名称见 [docs/SCRIPTS.md](docs/SCRIPTS.md)。
-
-## 青龙依赖
-
-在青龙面板的“依赖管理”中分别添加：
-
-- NodeJs：`axios`
-- Python3：`requests`
-
-依赖清单同时保存在 `dependencies/nodejs.txt` 和 `dependencies/python3.txt`。`fs`、`path`、`crypto`、`querystring` 等属于 Node.js 自带模块，不需要安装。
-
-## 青龙订阅
-
-在青龙面板打开“订阅管理”，新建订阅：
-
-```text
-名称：YYB-Scrip-smallfawn
-类型：公开仓库
-链接：https://github.com/dada-liang/YYB-Scrip-smallfawn.git
-分支：main
-定时：0 0 * * *
-```
-
-白名单和黑名单留空，保存后执行一次订阅。必须拉取完整目录，不能只复制单个 `wxapp/batch-*` 脚本，否则脚本会找不到 `wxapp/tools/env.js`。
-
-订阅完成后，青龙通常生成目录：
-
-```text
-/ql/data/scripts/dada-liang_YYB-Scrip-smallfawn
-```
-
-如果面板生成的目录名不同，以青龙实际显示的任务路径为准。手动新建任务示例：
+## 青龙拉库命令
 
 ```bash
-task dada-liang_YYB-Scrip-smallfawn/wxapp/batch-01/aiguo.js
+ql repo "https://github.com/dada-liang/YYB-Scrip-smallfawn.git" "^wx-script/.*\.(js|py)$" "" "env.js|wcs.js" "main" "js py"
 ```
 
-```bash
-task dada-liang_YYB-Scrip-smallfawn/standalone/kangshifu_yyb.js
+参数顺序：
+
+```text
+仓库地址 | 白名单 | 黑名单 | 依赖文件 | 分支 | 文件后缀
 ```
 
-各 JavaScript 文件头部已保留建议定时。`提现免费券.py` 可在青龙中按需要自行设置执行时间。
+不同青龙版本的 `ql repo` 参数可能存在差异。如果命令行筛选无效，请在青龙面板的“订阅管理”中填写相同的仓库地址、分支、白名单和依赖文件。
 
-## YYB 配置
+## 依赖
 
-青龙环境变量：
+在青龙面板“依赖管理”中安装：
+
+```text
+NodeJs：axios
+Python3：requests
+```
+
+## 环境变量
 
 ```text
 变量名：YYB_SERVER
 变量值：yyb-go:8000@账号ID或OpenID
 ```
 
-多账号支持换行或 `&` 分隔，也可以在账号末尾添加 `#备注`：
+多账号支持换行或 `&` 分隔，账号末尾可以添加 `#备注`。
 
-```text
-yyb-go:8000@1#账号一
-yyb-go:8000@2#账号二
-```
+## 微信小程序脚本
 
-青龙与 YYB 使用 Docker 部署时，应加入同一个 Docker 网络，`YYB_SERVER` 中使用 YYB 容器名和容器端口，不要填写青龙容器内的 `127.0.0.1`。
+目录：`wx-script/`
 
-## 公共模块
+| 脚本 | 文件名 |
+| --- | --- |
+| 爱裹旧衣回收 | `aiguo.js` |
+| 爱果乐之家 | `aiguoyue.js` |
+| 安吉尔会员 | `ajier.js` |
+| Babycare 官方旗舰店 | `babycare.js` |
+| 白马智选 | `baimazhixuan.js` |
+| BLUE DASH 布鲁大师 | `bluedash.js` |
+| 宝妈上班 | `bmsb.js` |
+| 倍轻松签到 | `bqs.js` |
+| 比亚迪海洋签到 | `bydhy.js` |
+| 骆驼 CAMEL | `camel.js` |
+| 金巴厘杯中空间 | `campari.js` |
+| CASETiFY | `casetify.js` |
+| 臭宝乐园 | `choubao.js` |
+| 七彩虹 | `colorful.js` |
+| 大参林小程序签到 | `dasenlin.js` |
+| 铛铛一下 | `ddyx.js` |
+| 巅峰美缝师 | `dfmfs.js` |
+| 东风日产 | `dfrc.js` |
+| 袋鼠妈妈会员商城 | `dsmmhy.js` |
+| 都市甜心 | `dstx.js` |
+| 得物种树 | `dw.js` |
+| 发发藏宝洞 | `fafa.js` |
+| 飞鹤微信小程序 | `feihe.js` |
+| 敷尔佳 | `fej.js` |
+| 飞鹤星妈会 | `fhxmh.js` |
+| 飞蚂蚁旧衣回收 | `fmy.js` |
+| 逢三得利吧 | `fsdlb.js` |
+| 复游会 | `fuyouhui.js` |
+| 康师傅畅饮社 | `kangshifu.js` |
+| 提现笔笔省领券 | `wxzf.js` |
+| 提现免费券 | `提现免费券.py` |
 
-`wxapp/tools/env.js` 是六批脚本直接引用的必需模块，订阅完整仓库后会自动存在，不需要单独配置。
+## 微信适配模块
 
-`modules/wcs_yyb.js` 是给仍按旧 `wcs.js` 类方式调用的脚本准备的兼容模块。当前六批脚本不依赖它，不要为了使用批量脚本额外修改路径。
+模块与微信脚本放在同一个目录，拉库时会一起下载：
 
-青龙的 `sendNotify.js`/Python `notify` 属于面板通知能力，本仓库不复制青龙系统文件。
+| 模块 | 文件名 | 用途 |
+| --- | --- | --- |
+| 公共运行模块 | `env.js` | 当前微信脚本直接引用 |
+| YYB 微信服务兼容模块 | `wcs.js` | 兼容原微信脚本的调用方式 |
+
+各脚本所需定时和其他变量请查看对应文件头部说明。微信登录 code 通常只能使用一次，多个任务建议错开运行时间。
 
 ## 原项目出处
 
@@ -90,8 +89,16 @@ https://github.com/smallfawn/QLScriptPublic.git
 
 ## 免责声明
 
-本仓库仅用于测试、学习和研究，禁止用于商业用途。脚本依赖第三方服务，不能保证合法性、准确性、完整性、有效性或长期可用性，请使用者自行判断并承担风险。
+这里的脚本只是自己学习 js 的一个实践 仅用于测试和学习研究，禁止用于商业用途，不能保证其合法性，准确性，完整性和有效性，请根据情况自行判断.
 
-原作者及本仓库维护者不对脚本错误、账号风险、服务变更、隐私泄露或其他直接和间接损失负责。任何单位或个人认为相关内容侵犯其权利时，请提供有效权属证明并联系删除。
+仓库内所有资源文件，禁止任何公众号、自媒体进行任何形式的转载、发布。
 
-请遵守所在地法律法规、目标服务条款及原项目声明，严禁形成利益链。
+smallfawn 对任何脚本问题概不负责，包括但不限于由任何脚本错误导致的任何损失或损害.
+
+间接使用脚本的任何用户，包括但不限于建立VPS或在某些行为违反国家/地区法律或相关法规的情况下进行传播, smallfawn 对于由此引起的任何隐私泄漏或其他后果概不负责.
+
+如果任何单位或个人认为该项目的脚本可能涉嫌侵犯其权利，则应及时通知并提供身份证明，所有权证明，我们将在收到认证文件后删除相关脚本.
+
+任何以任何方式查看此项目的人或直接或间接使用该Script项目的任何脚本的使用者都应仔细阅读此声明。 smallfawn 保留随时更改或补充此免责声明的权利。一旦使用并复制了任何相关脚本或Script项目的规则，则视为您已接受此免责声明.
+
+您必须在下载后的24小时内从计算机或手机中完全删除以上内容.严禁产生利益链！
