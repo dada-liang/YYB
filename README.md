@@ -1,5 +1,5 @@
 # YYB-Scrip-smallfawn
-YYB的协议适配
+自用
 
 ## 原项目出处
 
