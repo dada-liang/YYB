@@ -365,7 +365,6 @@ class Task {
 }
 
 !(async () => {
-    await getNotice();
     $.checkEnv();
     if (!$.userCount) { $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID"); return; }
 
@@ -375,14 +374,3 @@ class Task {
 })()
     .catch((e) => console.log(e))
     .finally(() => $.done());
-
-async function getNotice() {
-    try {
-        const { data } = await axios.request({
-            url: "https://ghproxy.net/https://raw.githubusercontent.com/smallfawn/Note/refs/heads/main/Notice.json",
-            headers: { "User-Agent": defaultUserAgent },
-            timeout: 3000,
-        });
-        $.log(data);
-    } catch (e) {}
-}
