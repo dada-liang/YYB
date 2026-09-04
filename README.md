@@ -2,6 +2,10 @@
 
 青龙脚本订阅仓库，当前脚本统一放在 `wx-script/`，用于对接 YYB Go 的微信小程序账号。
 
+## 原项目出处
+
+https://github.com/smallfawn/QLScriptPublic.git
+
 ## 青龙拉库命令
 
 ```bash
@@ -103,9 +107,6 @@ yyb-go:8000@2#微信二
 
 各脚本所需定时和其他变量请查看对应文件头部说明。微信登录 code 通常只能使用一次，多个任务建议错开运行时间。
 
-## 原项目出处
-
-https://github.com/smallfawn/QLScriptPublic.git
 
 ## 免责声明
 
