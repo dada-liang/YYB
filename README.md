@@ -1,4 +1,4 @@
-# YYB-Scrip-smallfawn
+# YYB-Scrip
 
 青龙脚本订阅仓库，当前脚本统一放在 `wx-script/`，用于对接 YYB Go 的微信小程序账号。
 
