@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import io
 import secrets
 import string
+import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import os
@@ -41,6 +44,43 @@ USER_AGENT = (
 
 class ClaimError(RuntimeError):
     pass
+
+
+class Tee(io.TextIOBase):
+    def __init__(self, stream: Any, buffer: io.StringIO) -> None:
+        self.stream = stream
+        self.buffer = buffer
+
+    def write(self, text: str) -> int:
+        self.stream.write(text)
+        self.buffer.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+        self.buffer.flush()
+
+
+def send_notification(content: str) -> None:
+    notifier = Path(__file__).with_name("sendNotify.js")
+    if not notifier.is_file():
+        print("发送通知失败：未找到 sendNotify.js")
+        return
+    runner = (
+        "const fs=require('fs');"
+        "const {sendNotify}=require(process.argv[1]);"
+        "sendNotify(process.argv[2],fs.readFileSync(0,'utf8'))"
+        ".catch(e=>{console.error(e);process.exitCode=1})"
+    )
+    result = subprocess.run(
+        ["node", "-e", runner, str(notifier), "提现免费券"],
+        input=content,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode:
+        print(f"发送通知失败：Node 退出码 {result.returncode}")
 
 def parse_account(raw: str) -> tuple[str, str, str]:
     account, _, remark = raw.partition("#")
@@ -341,4 +381,12 @@ def mask_openid(openid: str) -> str:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    output = io.StringIO()
+    original_stdout = sys.stdout
+    sys.stdout = Tee(original_stdout, output)
+    try:
+        exit_code = main()
+    finally:
+        sys.stdout = original_stdout
+    send_notification(output.getvalue().strip())
+    raise SystemExit(exit_code)

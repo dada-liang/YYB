@@ -6,11 +6,8 @@
 定时：11 11 * * *
 */
 
-const $ = {
-    userIdx: 1,
-    log: (...args) => console.log(...args),
-    done: () => console.log("康师傅畅饮社执行结束"),
-};
+const { Env } = require("./env.js");
+const $ = new Env("康师傅畅饮社");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");

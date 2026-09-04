@@ -9,7 +9,7 @@ https://github.com/smallfawn/QLScriptPublic.git
 ## 青龙拉库命令
 
 ```bash
-ql repo "https://github.com/dada-liang/YYB.git" "^wx-script/.*\.(js|py)$" "" "env.js|wcs.js" "main" "js py"
+ql repo "https://github.com/dada-liang/YYB.git" "^wx-script/.*\.(js|py)$" "" "env.js|wcs.js|sendNotify.js" "main" "js py"
 ```
 
 参数顺序：
@@ -33,7 +33,9 @@ ql repo "https://github.com/dada-liang/YYB.git" "^wx-script/.*\.(js|py)$" "" "en
   </thead>
   <tbody>
     <tr>
-      <td><pre>axios</pre></td>
+      <td><pre>axios
+undici
+nodemailer</pre></td>
       <td><pre>requests</pre></td>
     </tr>
   </tbody>
@@ -104,6 +106,7 @@ yyb-go:8000@2#微信二
 | --- | --- | --- |
 | 公共运行模块 | `env.js` | 当前微信脚本直接引用 |
 | YYB 微信服务兼容模块 | `wcs.js` | 兼容原微信脚本的调用方式 |
+| 青龙通知模块 | `sendNotify.js` | 读取青龙推送变量并发送运行结果 |
 
 各脚本所需定时和其他变量请查看对应文件头部说明。微信登录 code 通常只能使用一次，多个任务建议错开运行时间。
 
