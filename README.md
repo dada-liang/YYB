@@ -5,7 +5,7 @@
 ## 青龙拉库命令
 
 ```bash
-ql repo "https://github.com/dada-liang/YYB-Scrip-smallfawn.git" "^wx-script/.*\.(js|py)$" "" "env.js|wcs.js" "main" "js py"
+ql repo "https://github.com/dada-liang/YYB.git" "^wx-script/.*\.(js|py)$" "" "env.js|wcs.js" "main" "js py"
 ```
 
 参数顺序：
