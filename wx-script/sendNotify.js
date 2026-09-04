@@ -151,6 +151,7 @@ const push_config = {
   WXPUSHER_APP_TOKEN: '', // wxpusher 的 appToken
   WXPUSHER_TOPIC_IDS: '', // wxpusher 的 主题ID，多个用英文分号;分隔 topic_ids 与 uids 至少配置一个才行
   WXPUSHER_UIDS: '', // wxpusher 的 用户ID，多个用英文分号;分隔 topic_ids 与 uids 至少配置一个才行
+  WXPUSHER_SPT_LIST: '', // wxpusher 的 SPT（极简推送），多个用英文逗号分隔，最多 10 个
 };
 
 for (const key in push_config) {
@@ -1408,6 +1409,59 @@ function wxPusherNotify(text, desp) {
   });
 }
 
+function wxPusherSptNotify(text, desp) {
+  return new Promise((resolve) => {
+    const { WXPUSHER_SPT_LIST } = push_config;
+    if (WXPUSHER_SPT_LIST) {
+      const spts = WXPUSHER_SPT_LIST.split(',')
+        .map((spt) => spt.trim())
+        .filter((spt) => spt);
+
+      if (!spts.length) {
+        console.log('wxpusher SPT 不能为空!!');
+        return resolve();
+      }
+      if (spts.length > 10) {
+        console.log('wxpusher SPT 最多支持 10 个!!');
+        return resolve();
+      }
+
+      const body = {
+        content: `<h1>${text}</h1><br/><div style='white-space: pre-wrap;'>${desp}</div>`,
+        summary: text,
+        contentType: 2,
+        ...(spts.length === 1 ? { spt: spts[0] } : { sptList: spts }),
+      };
+      const options = {
+        url: 'https://wxpusher.zjiecode.com/api/send/message/simple-push',
+        body: JSON.stringify(body),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout,
+      };
+
+      $.post(options, (err, resp, data) => {
+        try {
+          if (err) {
+            console.log('wxpusher SPT 发送通知消息失败！\n', err);
+          } else if (data.code === 1000) {
+            console.log('wxpusher SPT 发送通知消息完成！');
+          } else {
+            console.log(`wxpusher SPT 发送通知消息异常：${data.msg}`);
+          }
+        } catch (e) {
+          $.logErr(e, resp);
+        } finally {
+          resolve(data);
+        }
+      });
+    } else {
+      resolve();
+    }
+  });
+}
+
 function parseString(input, valueFormatFn) {
   const regex = /(\w+):\s*((?:(?!\n\w+:).)*)/g;
   const matches = {};
@@ -1538,6 +1592,7 @@ async function sendNotify(text, desp, params = {}) {
     qmsgNotify(text, desp), // 自定义通知
     ntfyNotify(text, desp), // Ntfy
     wxPusherNotify(text, desp), // wxpusher
+    wxPusherSptNotify(text, desp), // wxpusher SPT
   ]);
 }
 

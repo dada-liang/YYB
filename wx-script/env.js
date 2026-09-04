@@ -69,14 +69,34 @@ class Env {
     }
 
     async done() {
+        const content = this.notifyStr.join("\n");
+        const systemNotify = globalThis.QLAPI?.systemNotify;
+        if (typeof systemNotify === "function") {
+            try {
+                const result = await systemNotify({ title: this.name, content });
+                if (Number(result?.code) === 200) {
+                    console.log("青龙系统通知发送成功");
+                } else {
+                    console.error(`青龙系统通知发送失败: ${result?.message || JSON.stringify(result)}`);
+                }
+            } catch (error) {
+                console.error(`青龙系统通知发送失败: ${error.message || error}`);
+            }
+            const seconds = ((Date.now() - this.startTime) / 1000).toFixed(2);
+            console.log(`🔔${this.name},结束!🕛 ${seconds}秒`);
+            return;
+        }
+
         const notifierPath = findNotifier();
         if (notifierPath) {
             try {
                 const { sendNotify } = require(notifierPath);
-                await sendNotify(this.name, this.notifyStr.join("\n"));
+                await sendNotify(this.name, content);
             } catch (error) {
                 console.error(`发送通知失败: ${error.message || error}`);
             }
+        } else {
+            console.error("发送通知失败: 未找到 sendNotify.js");
         }
         const seconds = ((Date.now() - this.startTime) / 1000).toFixed(2);
         console.log(`🔔${this.name},结束!🕛 ${seconds}秒`);
