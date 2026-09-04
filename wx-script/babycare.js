@@ -2,7 +2,7 @@
 Babycare官方旗舰店 - 微信小程序静默登录 + 每日签到 — YYB Go（应用宝协议）适配版
 青龙变量：YYB_SERVER=yyb-go:8000@账号ID或OpenID
 多账号时每行一个，可在账号后加 #备注。
-cron: 41 8 * * *
+cron: 19 9 * * *
 小程序 AppID：wxab5642d7bced2dcc
 */
 

@@ -3,7 +3,7 @@
 @Author: sm
 @Date: 2026.06.01
 @Description:  七彩虹微信小程序 签到
-cron: 30 10 * * *
+cron: 14 11 * * *
 ------------------------------------------
 #Notice:
 青龙变量：YYB_SERVER=yyb-go:8000@账号ID或OpenID

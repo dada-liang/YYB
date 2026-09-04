@@ -3,7 +3,7 @@
 @Author: sm
 @Date: 2026.05.31
 @Description: CASETiFY 签到
-cron: 46 8 * * *
+cron: 21 9 * * *
 ------------------------------------------
 青龙变量：YYB_SERVER=yyb-go:8000@账号ID或OpenID
 多账号用 & 或换行分隔，可在账号后加 #备注
