@@ -18,21 +18,70 @@ ql repo "https://github.com/dada-liang/YYB-Scrip-smallfawn.git" "^wx-script/.*\.
 
 ## 依赖
 
-在青龙面板“依赖管理”中安装：
+在青龙面板“依赖管理”中新建依赖，选择对应类型后，可以整列复制粘贴。青龙会按换行自动识别多个依赖。
 
-```text
-NodeJs：axios
-Python3：requests
-```
+<table>
+  <thead>
+    <tr>
+      <th>NodeJs</th>
+      <th>Python3</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre>axios</pre></td>
+      <td><pre>requests</pre></td>
+    </tr>
+  </tbody>
+</table>
 
 ## 环境变量
 
 ```text
-变量名：YYB_SERVER
-变量值：yyb-go:8000@账号ID或OpenID
+YYB_SERVER
 ```
 
-多账号支持换行或 `&` 分隔，账号末尾可以添加 `#备注`。
+YYB 网页版可以一键同步变量到青龙面板。
+
+### 变量值怎么填写
+
+每个账号填写一行，格式是：
+
+```text
+YYB服务地址:端口@账号ID或OpenID
+```
+
+例如：
+
+```text
+yyb-go:8000@1
+```
+
+这行内容分成三部分：
+
+- `yyb-go`：YYB 服务地址。它不是固定值，必须填写青龙能够访问到的地址，可以是主机名、服务器 IP 或域名。
+- `8000`：YYB 服务端口。如果部署时修改过端口，就填写修改后的端口。
+- `1`：YYB 账号 ID。在 YYB 网页版的账号列表中可以看到；也可以填写该账号的 OpenID。
+
+如果青龙无法通过 `yyb-go` 访问 YYB，就改成实际 IP 或域名：
+
+```text
+192.168.1.20:8000@1
+https://yyb.example.com@1
+```
+
+地址没有写 `http://` 或 `https://` 时，脚本会自动使用 `http://`。使用域名和 HTTPS 时，请保留完整的 `https://`。
+
+不要随便填写 `127.0.0.1`。它表示“青龙自己”，只有 YYB 确实与青龙共用这个本机地址时才能使用。
+
+多账号可以每行填写一个，也可以使用 `&` 分隔。建议每行一个，更容易检查：
+
+```text
+yyb-go:8000@1#微信一
+yyb-go:8000@2#微信二
+```
+
+`#微信一`、`#微信二` 是可选备注，不填写也能运行。
 
 ## 微信小程序脚本
 
