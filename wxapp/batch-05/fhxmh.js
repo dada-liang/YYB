@@ -1,0 +1,222 @@
+/*
+------------------------------------------
+@Author: sm
+@Date: 2026.06.09
+@Description: 飞鹤星妈会 登录/查询/签到
+cron: 20 8 * * *
+------------------------------------------
+青龙变量：YYB_SERVER=yyb-go:8000@账号ID或OpenID
+多账号用 & 或换行分隔，可在账号后加 #备注
+------------------------------------------
+*/
+
+const { Env } = require("../tools/env.js");
+const $ = new Env("飞鹤星妈会");
+const axios = require("axios");
+
+const APP = { name: "飞鹤星妈会", appid: "wxc83b55d61c7fc51d" };
+// 服务端业务成功码（签到成功时返回 code=000000 且 success=true）
+const OK_CODES = ["00000", "000000", "A00002"];
+const USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) MicroMessenger/3.9.12 MiniProgramEnv/Windows WindowsWechat/WMPF";
+
+function short(value, max = 220) {
+    if (value === undefined || value === null) return "";
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function getByPath(obj, path) {
+    return String(path)
+        .split(".")
+        .reduce((cur, key) => (cur && cur[key] !== undefined ? cur[key] : undefined), obj);
+}
+
+function findFirst(obj, predicate, depth = 0) {
+    if (!obj || depth > 8) return null;
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            const found = findFirst(item, predicate, depth + 1);
+            if (found) return found;
+        }
+        return null;
+    }
+    if (typeof obj === "object") {
+        if (predicate(obj)) return obj;
+        for (const value of Object.values(obj)) {
+            const found = findFirst(value, predicate, depth + 1);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+async function request(options) {
+    const res = await axios.request({
+        timeout: 20000,
+        validateStatus: () => true,
+        ...options,
+        headers: {
+            "User-Agent": USER_AGENT,
+            Accept: "application/json, text/plain, */*",
+            ...(options.headers || {}),
+        },
+    });
+    return { status: res.status, headers: res.headers || {}, data: res.data };
+}
+
+async function getWxCode(server, appid, openid) {
+    const { status, data } = await request({
+        method: "POST",
+        url: `${server}/wxapp/getCode`,
+        headers: { "content-type": "application/json" },
+        data: { ref: openid, app_id: appid },
+    });
+    const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
+    if (status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败 HTTP ${status}: ${short(data)}`);
+    return code;
+}
+
+class FeiheMom {
+    constructor(server, openid) {
+        this.server = server;
+        this.openid = openid;
+        this.base = "https://momclub.feihe.com/capis";
+        this.token = "";
+    }
+
+    async api({ method = "GET", path, data, allowFail = false }) {
+        const opts = {
+            method,
+            url: `${this.base}${path}`,
+            headers: {
+                Authorization: this.token,
+                locale: "zh_CN",
+                "content-type": "application/json",
+            },
+        };
+        if (method === "GET") opts.params = data || {};
+        else opts.data = data === undefined ? {} : data;
+        const res = await request(opts);
+        const ok = res.status === 200 && OK_CODES.includes(String(res.data?.code));
+        if (!ok && !allowFail) throw new Error(`HTTP ${res.status}: ${short(res.data)}`);
+        return res.data;
+    }
+
+    async login() {
+        const code = await getWxCode(this.server, APP.appid, this.openid);
+        const res = await request({
+            method: "POST",
+            url: `${this.base}/social/ma`,
+            headers: { "content-type": "application/json", locale: "zh_CN" },
+            data: code,
+            transformRequest: [(data) => data],
+        });
+        const token = res.data?.data?.tokenInfo?.accessToken || res.data?.data?.accessToken || "";
+        // 服务端会以 code:"00000"/success:true 回一个只含 tempUid、tokenInfo:null 的响应，
+        // 那是「该微信号还不是会员」的临时身份，不是登录出错——照原样抛会显示成 HTTP 200 的登录失败。
+        if (res.status === 200 && !token && res.data?.data?.tempUid) {
+            const e = new Error("NO_ACCOUNT:登录只返回临时身份(tokenInfo 为空)");
+            e.unregistered = true;
+            throw e;
+        }
+        if (res.status !== 200 || !token) throw new Error(`登录失败 HTTP ${res.status}: ${short(res.data)}`);
+        this.token = token;
+        return `token=${token.slice(0, 8)}***`;
+    }
+
+    async query() {
+        const member = await this.api({ path: "/c/user/memberInfo", allowFail: true });
+        const user = await this.api({ path: "/p/user/userInfo", allowFail: true });
+        const data = member?.data || user?.data || {};
+        const score = data.score || data.points || data.integral || data.availableScore || data.totalScore;
+        const name = data.nickName || data.nickname || data.memberName || data.mobile || data.phone || "";
+        return `用户=${name || "未知"} 积分=${score ?? "未知"} member=${short(member?.data || member, 120)}`;
+    }
+
+    async sign() {
+        const todo = await this.api({
+            path: "/c/activity/todo/list",
+            data: { mockTime: Date.now() },
+            allowFail: true,
+        });
+        const checkTodo =
+            getByPath(todo, "data.checkInTodo") ||
+            findFirst(todo?.data, (item) => item && (item.checkInExtra || /签到|打卡|check/i.test(`${item.taskName || item.name || item.title || ""}`)));
+        const activityId = checkTodo?.id || checkTodo?.activityId || checkTodo?.taskId;
+        if (!activityId) return `未找到签到任务: ${short(todo)}`;
+        const todaySigned =
+            checkTodo?.todaySigned ||
+            checkTodo?.signed ||
+            checkTodo?.finish ||
+            checkTodo?.completed ||
+            checkTodo?.status === 1 ||
+            checkTodo?.state === 1;
+        if (todaySigned) return `今日已签到 activityId=${activityId}`;
+        const sign = await this.api({
+            method: "POST",
+            path: "/c/activity/todo/checkIn",
+            data: { activityId, mockTime: Date.now() },
+            allowFail: true,
+        });
+        // 成功: {"ok":true,"success":true,"code":"000000","data":{"credits":1}}
+        if (sign?.success === true || OK_CODES.includes(String(sign?.code))) {
+            const credits = sign?.data?.credits ?? sign?.data?.point ?? sign?.data?.score;
+            return `签到成功${credits === undefined ? "" : `，+${credits}积分`} activityId=${activityId}`;
+        }
+        // 任务列表的已签标记字段不全，重复签到时靠服务端文案/业务码兜底
+        // 实测重复签到返回 {"code":"A00001","msg":"今天已经签到过了"}
+        if (String(sign?.code) === "A00001" || /已签|已经签|签到过|重复|already/i.test(`${sign?.message || ""}${sign?.msg || ""}`)) {
+            return `今日已签到 activityId=${activityId}`;
+        }
+        return `签到失败: ${short(sign)}`;
+    }
+}
+
+function parseYYBAccount(raw = "") {
+    const text = String(raw).trim(); const at = text.lastIndexOf("@");
+    if (at <= 0) return { server: "", openid: "", remark: "" };
+    const server = text.slice(0, at).trim().replace(/\/$/, ""); const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
+    return { server: /^https?:\/\//i.test(server) ? server : `http://${server}`, openid, remark: remark || "" };
+}
+
+async function runAccount(raw, index) {
+    const account = parseYYBAccount(raw);
+    if (!account.server || !account.openid) { $.log(`账号[${index}] YYB_SERVER 格式无效`); return; }
+    const { server, openid, remark } = account;
+    $.log(`\n========== ${APP.name} 账号[${index}]${remark ? `[${remark}]` : ""} ==========`);
+    const runner = new FeiheMom(server, openid);
+    try {
+        $.log(`登录：${await runner.login()}`);
+        $.log(`查询：${await runner.query()}`);
+        $.log(`签到：${await runner.sign()}`);
+    } catch (e) {
+        const m = String(e.message || e);
+        if (m.startsWith("NO_ACCOUNT")) {
+            $.log(`⚠️ 该微信号还没在飞鹤星妈会注册会员（${m.replace(/^NO_ACCOUNT:/, "")}），先在小程序里登录注册一次再跑`);
+            return;
+        }
+        $.log(`执行失败：${m}`);
+    }
+}
+
+(async () => {
+    const accounts = (process.env.YYB_SERVER || "")
+        .split(/\r?\n|&/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    if (!accounts.length) {
+        $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
+        await $.done();
+        return;
+    }
+    $.log(`共找到${accounts.length}个账号`);
+    for (let i = 0; i < accounts.length; i++) {
+        await runAccount(accounts[i], i + 1);
+        await $.wait(800);
+    }
+    await $.done();
+})().catch(async (e) => {
+    $.log(`脚本异常：${e.stack || e.message || e}`);
+    await $.done();
+});
