@@ -32,12 +32,12 @@ CLIENT_CODE 是该小程序固定应用标识（原脚本硬编码，非个人�
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("加多宝Club签到");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCode, getPhoneNumber, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "jdbclub";
 const MINI_APP_ID = "wx8371875e443e177f";
@@ -57,6 +57,19 @@ const EP_USER_INFO = "/geement.usercenter/api/v1/user/information";
 const EP_SIGNIN_LIST = "/geement.marketingplay/api/v1/signin";
 const EP_SIGNIN_USERINFO = "/geement.marketingplay/api/v1/signin/userinfo";
 const EP_SIGNIN_DO = "/geement.marketingplay/api/v1/signin/signbyuser";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readCache() {
     try { if (!fs.existsSync(TOKEN_CACHE_FILE)) return {}; return JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, "utf8")) || {}; } catch (e) { return {}; }
@@ -79,8 +92,9 @@ function chinaDateStr() {
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw, process.env.wx_server_url || "http://192.168.31.196:8787");
-        this.cacheId = cacheKey(this.account);
+        this.account = parseAccount(raw);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
         this.token = "";
         this.apitoken = "";
         this.unregistered = false;
@@ -89,12 +103,16 @@ class Task {
         $.log(`账号[${this.index}]${this.account.remark ? `[${this.account.remark}]` : ""} ${text}`);
     }
     async getCode() {
-        return getCode(this.account, MINI_APP_ID);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
     async getPhoneCode() {
         try {
-            const result = await getPhoneNumber(this.account, MINI_APP_ID, { timeout: 60000 });
-            const phoneCode = result.phoneCode || result.code || "";
+            const { data } = await this.wechat.getPhoneNumber(this.account.ref);
+            const result = data.data || {};
+            let raw = result.raw || {};
+            if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+            const phoneCode = result.phoneCode || result.phone_code || result.code || raw.phoneCode || raw.phone_code || raw.code || "";
             if (!phoneCode) this.log(`YYB未返回手机号 code: ${short(result)}`);
             return phoneCode;
         } catch (e) {
@@ -244,7 +262,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {

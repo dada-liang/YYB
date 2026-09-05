@@ -21,13 +21,13 @@ cron: 30 8 * * *
 7、所有直接或间接使用、查看此脚本的人均应该仔细阅读此声明。本人保留随时更改或补充此声明的权利。一旦您使用或复制了此脚本，即视为您已接受此免责声明。
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("iqoo社区");
 const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCodeData, getUserInfo, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "iqoo";
 const strSplitor = "#";
@@ -38,6 +38,19 @@ const TOKEN_CACHE_FILE = path.join(__dirname, "iqoo_token_cache.json");
 const SIGN_SECRET = "2618194b0ebb620055e19cf9811d3c13";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf254173b) XWEB/19027";
 const defaultUserAgent = USER_AGENT;
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readTokenCache() {
     try {
@@ -78,9 +91,10 @@ class Task {
     constructor(env) {
         this.index = $.userIdx++;
         this.user = String(env || "").trim().split(strSplitor);
-        this.yybAccount = parseAccount(env, process.env.wx_server_url || "http://192.168.31.196:8787");
+        this.yybAccount = parseAccount(env);
         this.openid = this.yybAccount.openid;
-        this.cacheId = cacheKey(this.yybAccount);
+        this.cacheId = yybCacheKey(this.yybAccount.server, this.yybAccount.ref);
+        this.wechat = new WeChatServer({ url: this.yybAccount.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
         this.token = "";
         this.refreshToken = "";
         this.userId = "";
@@ -211,19 +225,23 @@ class Task {
     }
 
     async getOperateData() {
-        const login = await getCodeData(this.yybAccount, MINI_APP_ID, { timeout: 45000 });
-        if (login.openid) {
-            this.openid = login.openid;
-            this.visitor = crypto.createHash("md5").update(this.openid).digest("hex");
-        }
-        const userInfo = await getUserInfo(this.yybAccount, { timeout: 45000 });
-        const raw = userInfo?.raw && typeof userInfo.raw === "object" ? userInfo.raw : {};
+        const infoResponse = await this.wechat.getUserInfo(this.yybAccount.ref);
+        const envelope = infoResponse.data?.data || {};
+        let userInfo = envelope.user_info || envelope.userInfo || envelope.result || envelope;
+        if (typeof userInfo === "string") { try { userInfo = JSON.parse(userInfo); } catch { userInfo = {}; } }
+        let raw = userInfo?.raw || {};
+        if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
         const encryptedData = userInfo?.encryptedData || userInfo?.encrypted_data || raw.encryptedData || raw.encrypted_data || "";
         const iv = userInfo?.iv || raw.iv || "";
         if (!encryptedData || !iv) {
             throw new Error(`YYB /wx/getuserinfo 未返回原登录接口所需的 encryptedData/iv: ${JSON.stringify(userInfo)}`);
         }
-        return { code: login.code, encryptedData, iv };
+        const loginResponse = await this.wechat.getCode(this.yybAccount.ref);
+        if (loginResponse.data?.openid) {
+            this.openid = loginResponse.data.openid;
+            this.visitor = crypto.createHash("md5").update(this.openid).digest("hex");
+        }
+        return { code: loginResponse.data.data.code, encryptedData, iv };
     }
 
     async loginByWxCode() {
@@ -376,7 +394,7 @@ class Task {
 
 !(async () => {
     await getNotice();
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
 
     for (const user of $.userList) {

@@ -31,13 +31,13 @@ CAS_APP_ID/platformType/source 为该小程序固定应用常量（原脚本硬�
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("嘉立创签到");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const FormData = require("form-data");
-const { accountEnv, cacheKey, getCode, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "jlc";
 const MINI_APP_ID = "wx6c7b851c877dba42";
@@ -60,6 +60,19 @@ const TOKEN_CACHE_FILE = path.join(__dirname, "jlc_token_cache.json");
 const UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 " +
     "MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readCache() {
     try { if (!fs.existsSync(TOKEN_CACHE_FILE)) return {}; return JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, "utf8")) || {}; } catch (e) { return {}; }
@@ -88,8 +101,9 @@ function extractCasAuthCode(payload) {
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw, process.env.wx_server_url || "http://192.168.31.196:8787");
-        this.cacheId = cacheKey(this.account);
+        this.account = parseAccount(raw);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
         this.token = "";
         this.secret = "";
     }
@@ -97,7 +111,8 @@ class Task {
         $.log(`账号[${this.index}]${this.account.remark ? `[${this.account.remark}]` : ""} ${text}`);
     }
     async getCode() {
-        return getCode(this.account, MINI_APP_ID);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
     // 动态获取/刷新 secretkey(keyId)
     async refreshSecret(previousKey = "") {
@@ -358,7 +373,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {

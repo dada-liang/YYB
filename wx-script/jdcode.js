@@ -26,12 +26,12 @@ wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("京东Code采集");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCode, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "jdcode";
 const MINI_APP_ID = "wx2f5d8f9715c59d10"; // JD_PT_APPID：login_lt 的 appid（须与取 code 的 appid 一致）
@@ -41,6 +41,19 @@ const COOKIE_CACHE_FILE = path.join(__dirname, "jdcode_cookie_cache.json");
 const UA =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) " +
     "Mobile/15E148 MicroMessenger/8.0.49 NetType/WIFI Language/zh_CN miniProgram/" + MINI_APP_ID;
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readCache() {
     try { if (!fs.existsSync(COOKIE_CACHE_FILE)) return {}; return JSON.parse(fs.readFileSync(COOKIE_CACHE_FILE, "utf8")) || {}; } catch (e) { return {}; }
@@ -68,14 +81,16 @@ function pickCookie(setCookies, name) {
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw, process.env.wx_server_url || "http://192.168.31.196:8787");
-        this.cacheId = cacheKey(this.account);
+        this.account = parseAccount(raw);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
     }
     log(text) {
         $.log(`账号[${this.index}]${this.account.remark ? `[${this.account.remark}]` : ""} ${text}`);
     }
     async getCode() {
-        return getCode(this.account, MINI_APP_ID);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
     async loginLt(code) {
         const params = {
@@ -133,7 +148,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {

@@ -25,13 +25,13 @@ wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("demogic会员");
 const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCode, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "hxek";
 const MINI_APP_ID = "wxa1f1fa3785a47c7d";
@@ -45,6 +45,19 @@ const UA =
 
 const EP_LOGIN = "/gic-wx-app/on_login.json";
 const EP_SIGN = "/gic-wx-app/member_sign.json";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readCache() {
     try {
@@ -118,8 +131,9 @@ const isAlreadyDone = (t) => /已签|已经签|签到过|重复|已完成|alread
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw, process.env.wx_server_url || "http://192.168.31.196:8787");
-        this.cacheId = cacheKey(this.account);
+        this.account = parseAccount(raw);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
         this.memberId = "";
     }
     log(text) {
@@ -149,7 +163,8 @@ class Task {
         return res.data;
     }
     async getCode() {
-        return getCode(this.account, MINI_APP_ID);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
     async login() {
         const code = await this.getCode();
@@ -219,7 +234,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {

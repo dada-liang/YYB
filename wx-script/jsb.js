@@ -24,12 +24,12 @@ activityId=170630 是这家的固定签到活动（原脚本硬编码，会失�
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("杰士邦会员中心");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCodeData, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "jsb";
 const APP = { appid: "wx5966681b4a895dee", shopId: "467028", signActivityId: "170630" };
@@ -43,6 +43,19 @@ const EP_LOGIN = "/cloud/member/wechatlogin/authLoginApplet";
 const EP_CLIENT = "/cloud/member/tblogin/getClientInfo";
 const EP_SIGN_INFO = "/cloud/activity/sign/load-sign";
 const EP_SIGN = "/cloud/activity/sign/add-sign";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readCache() {
     try {
@@ -67,9 +80,10 @@ function short(v, n = 200) {
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw, process.env.wx_server_url || "http://192.168.31.196:8787");
+        this.account = parseAccount(raw);
         this.openid = this.account.openid;
-        this.cacheId = cacheKey(this.account);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: APP.appid, auth: process.env.wx_auth || "" });
         this.global = { appId: APP.appid, openId: "", unionid: "", shopNick: "", mainShopNick: "", jsession: "", clientToken: "", securePlatId: "", phoneNumber: "" };
     }
     log(text) {
@@ -99,9 +113,9 @@ class Task {
         return res.data;
     }
     async getCode() {
-        const result = await getCodeData(this.account, APP.appid);
-        this.openid = result.openid || this.openid;
-        return result.code;
+        const { data } = await this.wechat.getCode(this.account.ref);
+        this.openid = data.openid || this.openid;
+        return data.data.code;
     }
     async login() {
         const code = await this.getCode();
@@ -154,7 +168,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {

@@ -17,12 +17,12 @@ wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("jingjianx统一签到");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey: yybCacheKey, getCode: getYYBCode, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const CK_NAME = "jingjianx_all";
 const WX_SERVER_URL = process.env.wx_server_url || "http://192.168.31.196:8787";
@@ -260,6 +260,18 @@ function parseEntries(raw = "") {
         .filter(Boolean);
 }
 
+function parseYYBAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : WX_SERVER_URL;
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref };
+}
+
 function resolveAccounts(app, totalEntries) {
     const entries = totalEntries.length ? totalEntries : parseEntries(process.env[app.ck] || "");
     const mapped = [];
@@ -283,7 +295,10 @@ class AppContext {
     }
 
     async getCode(account) {
-        return getYYBCode(parseAccount(account, WX_SERVER_URL), this.app.appid);
+        const parsed = parseYYBAccount(account);
+        const wechat = new WeChatServer({ url: parsed.server, appid: this.app.appid, auth: process.env.wx_auth || "" });
+        const { data } = await wechat.getCode(parsed.ref);
+        return data.data.code;
     }
 
     headers(shopId = "", token = "", extra = {}) {
@@ -328,7 +343,7 @@ class ShopTask {
             shopName: String(shop.shopName || `门店${shop.shopId}`).trim(),
         };
         this.account = String(account || "").trim();
-        this.yybAccount = parseAccount(this.account, WX_SERVER_URL);
+        this.yybAccount = parseYYBAccount(this.account);
         this.index = index;
         this.token = "";
         this.isMember = false;
@@ -341,7 +356,7 @@ class ShopTask {
     }
 
     cacheKey() {
-        return `${this.app.appid}:${yybCacheKey(this.yybAccount)}:${this.shop.shopId}`;
+        return `${this.app.appid}:${yybCacheKey(this.yybAccount.server, this.yybAccount.ref)}:${this.shop.shopId}`;
     }
 
     getCachedToken() {
@@ -598,7 +613,7 @@ class ShopTask {
 }
 
 !(async () => {
-    const totalEntries = parseEntries(accountEnv(CK_NAME));
+    const totalEntries = parseEntries(process.env.YYB_SERVER || process.env[CK_NAME] || "");
     const summaries = [];
 
     for (const app of APPS) {

@@ -43,12 +43,12 @@ wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("iyouke平台签到");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCode, parseAccount: parseYYBAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const ckName = "iyouke";
 const BASE = "https://smp-api.iyouke.com/dtapi";
@@ -83,11 +83,12 @@ function writeCache(cache) {
 function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
-    const server = at > 0 ? text.slice(0, at) : "";
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
     const identity = at > 0 ? text.slice(at + 1) : text;
     const [openid, appid, ...remarks] = identity.split("#").map((s) => (s || "").trim());
-    const yybAccount = parseYYBAccount(at > 0 ? `${server}@${openid}` : openid, process.env.wx_server_url || "http://192.168.31.196:8787");
-    return { openid, appid, remark: remarks.join("#"), yybAccount };
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref: openid, openid, appid, remark: remarks.join("#") };
 }
 
 function short(v, n = 200) {
@@ -104,6 +105,7 @@ class Task {
         this.account = parseAccount(raw);
         this.token = "";
         this.unbound = false;
+        this.wechat = new WeChatServer({ url: this.account.server, appid: this.account.appid, auth: process.env.wx_auth || "" });
     }
 
     log(text) {
@@ -146,11 +148,12 @@ class Task {
 
     /** wcs.getCode 在 status:false 时也 resolve，必须自己判失败，否则取码限流会被误报成登录失败 */
     async getCode() {
-        return getCode(this.account.yybAccount, this.account.appid);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
 
     get cacheKey() {
-        return `${cacheKey(this.account.yybAccount)}#${this.account.appid}`;
+        return `${yybCacheKey(this.account.server, this.account.ref)}#${this.account.appid}`;
     }
 
     async login() {
@@ -264,7 +267,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     if (!$.userCount) {
         $.log(`未找到变量 ${ckName}`);

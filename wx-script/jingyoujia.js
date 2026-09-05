@@ -10,13 +10,13 @@ cron: 30 8 * * *
 ------------------------------------------
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("劲友家小程序签到");
 const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { accountEnv, cacheKey, getCode, parseAccount } = require("./yyb-client.js");
+const WeChatServer = require("./wcs.js");
 
 const MINI_APP_ID = "wx10bc773e0851aedd";
 const API_BASE = "https://jjw.jingjiu.com/app-jingyoujia";
@@ -26,6 +26,19 @@ const AES_KEY = "Z0J7M480h6kppf67";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) MicroMessenger/3.9.12 MiniProgramEnv/Windows WindowsWechat/WMPF";
 
 let ckName = "jingyoujia";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim();
+    const at = text.lastIndexOf("@");
+    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
+    const identity = at > 0 ? text.slice(at + 1) : text;
+    const hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    const value = rawServer.trim().replace(/\/+$/, "");
+    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    return { server, ref, openid: ref, remark };
+}
 
 function readTokenCache() {
     try {
@@ -61,8 +74,9 @@ function aesEncrypt(text) {
 class Task {
     constructor(account) {
         this.index = $.userIdx++;
-        this.account = parseAccount(account, process.env.wx_server_url || "http://192.168.31.196:8787");
-        this.cacheId = cacheKey(this.account);
+        this.account = parseAccount(account);
+        this.cacheId = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
         this.token = "";
         this.userInfo = {};
         this.points = "";
@@ -159,7 +173,8 @@ class Task {
     }
 
     async getLoginCode() {
-        return getCode(this.account, MINI_APP_ID);
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
 
     async loginByWxCode() {
@@ -291,7 +306,7 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = accountEnv(ckName);
+    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
     $.checkEnv(ckName);
     for (const account of $.userList) {
         await new Task(account).run();
