@@ -1,0 +1,594 @@
+/*
+------------------------------------------
+@Author: sm
+@Date: 2026.06.01
+@Description:  海天美味馆小程序
+cron: 30 11 * * *
+------------------------------------------
+#Notice:
+变量名 haitian
+变量值：wx_server 里的 openid/账号标识，多账号&或换行；也兼容旧格式 authorization#uuid
+需要配置：YYB_SERVER（服务器地址@账号ID或OpenID）
+
+可选变量：
+  haitian_phone_login  是否允许用 YYB /wxapp/getPhoneNumber 的手机号授权数据登录，默认 1(开启)。
+                       海天只有这一条登录路（等同小程序里点“手机号快捷登录”按钮），
+                       置 0 则改为自己抓包按 authorization#uuid 手填变量。
+
+登录链路（反编译包 wx7a890ea13f50d7b6 主包，逐行核对）：
+  手机号授权 -> e.detail.encryptedData / e.detail.iv
+  再 uni.login() 取一次 code
+  -> POST buyer-api/wechat/mini/phoneNew/login?edata=&iv=&code=&uuid=&article_ids=&app_versions=
+  -> {access_token, refresh_token, uid, success}
+  components/login/login.js:180-212(mpWxPhoneLogin)、common/vendor.js:4394(wxRegisterOrLogin)
+  注意 edata/iv 必须是【手机号】授权回调里的加密数据（YYB /wxapp/getPhoneNumber
+  返回的 encryptedData / iv）；早先脚本传的是普通用户资料接口的
+  【用户资料】加密数据（里面只有 nickName/avatarUrl），服务端解出来没有 phoneNumber，
+  固定回 HTTP 500 {"code":"E131","message":"登录失败"}——这不是服务端故障。
+  access_token 过期可用 POST buyer-api/passport/token {refresh_token} 续期（vendor.js:13707）。
+
+⚠️【免责声明】
+------------------------------------------
+1、此脚本仅用于学习研究，不保证其合法性、准确性、有效性，请根据情况自行判断，本人对此不承担任何保证责任。
+2、由于此脚本仅用于学习研究，您必须在下载后 24 小时内将所有内容从您的计算机或手机或任何存储设备中完全删除，若违反规定引起任何事件本人对此均不负责。
+3、请勿将此脚本用于任何商业或非法目的，若违反规定请自行对此负责。
+4、此脚本涉及应用与本人无关，本人对因此引起的任何隐私泄漏或其他后果不承担任何责任。
+5、本人对任何脚本引发的问题概不负责，包括但不限于由脚本错误引起的任何损失和损害。
+6、如果任何单位或个人认为此脚本可能涉嫌侵犯其权利，应及时通知并提供身份证明，所有权证明，我们将在收到认证文件确认后删除此脚本。
+7、所有直接或间接使用、查看此脚本的人均应该仔细阅读此声明。本人保留随时更改或补充此声明的权利。一旦您使用或复制了此免责声明。
+*/
+
+const { Env, yybCacheKey } = require("./env.js");
+const $ = new Env("海天美味馆小程序");
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+const WeChatServer = require("./wcs.js");
+
+const ckName = "haitian";
+const strSplitor = "#";
+const MINI_APP_ID = "wx7a890ea13f50d7b6";
+const PAGE_VERSION = "772";
+const API_BASE = "https://cmallapi.xkmm.cn/buyer-api";
+const BASE_API = "https://cmallapi.xkmm.cn/base-api";
+const TOKEN_CACHE_FILE = path.join(__dirname, "haitian_token_cache.json");
+// 手机号授权开关：默认开启(1)。海天的登录接口只吃手机号授权的加密数据，
+// 不想授权就置 0，然后自行抓包按 authorization#uuid 填变量。
+const PHONE_LOGIN = !/^(0|false|no|off)$/i.test(String(process.env.haitian_phone_login ?? "1"));
+const defaultUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_15 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70(0x1800462d) NetType/WIFI Language/zh_CN";
+
+function readTokenCache() {
+    try {
+        if (!fs.existsSync(TOKEN_CACHE_FILE)) return {};
+        return JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, "utf8")) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function writeTokenCache(cache) {
+    try {
+        fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
+    } catch (e) {
+        $.log(`写入token缓存失败: ${e.message || e}`);
+    }
+}
+
+function shortToken(token = "") {
+    const value = String(token || "");
+    return value ? `${value.slice(0, 6)}***${value.slice(-6)}` : "";
+}
+
+function maskPhone(phone = "") {
+    return String(phone || "").replace(/^(\d{3})\d{4}(\d{4})$/, "$1****$2");
+}
+
+function randomUuid(len = 20) {
+    const chars = "abcdef0123456789";
+    let value = "";
+    for (let i = 0; i < len; i++) value += chars[Math.floor(Math.random() * chars.length)];
+    return value;
+}
+
+function isTokenError(message) {
+    return /401|403|token|登录|授权|失效|过期|no-show-toast/i.test(String(message || ""));
+}
+
+// 幂等：重复签到服务端回 HTTP 500 {"code":"1019","message":"今天已经签到过了"}，
+// 老正则只有 /已签|重复/，匹配不到「已经签到过了」，会把成功当失败报
+function isAlreadySigned(message) {
+    return /\b1019\b|已签|已经签|签到过|重复|already/i.test(String(message || ""));
+}
+
+// 活动侧状态（结束/未开始），不是脚本故障，不打 ❌
+function isActivityClosed(message) {
+    return /活动(还没有开始|未开始|已经结束|已结束)|已经结束|已结束|\b002\b|\b1009\b/.test(String(message || ""));
+}
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim(), at = text.lastIndexOf("@");
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1), hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    if (!rawServer || !ref) return null;
+    return { server: /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`, ref, openid: ref, remark };
+}
+
+class Task {
+    constructor(env) {
+        this.index = $.userIdx++;
+        this.raw = String(env || "").trim();
+        this.user = this.raw.split(strSplitor);
+        this.accountId = this.user[0].trim();
+        this.yybAccount = parseAccount(this.raw) || {};
+        this.wechat = this.yybAccount.server ? new WeChatServer({ url: this.yybAccount.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" }) : null;
+        this.token = "";
+        this.refreshToken = "";
+        this.communityToken = "";
+        this.uuid = randomUuid();
+        this.activity_code = "";
+        this.userFlag = false;
+        this.userInfo = {};
+        // 旧格式 authorization#uuid：第一段是 JWT；openid#备注 这种不算
+        this.isLegacyToken = this.user.length >= 2 && /^ey[A-Za-z0-9_-]{10,}\./.test(this.accountId);
+        if (this.isLegacyToken) {
+            this.token = this.user[0].trim();
+            this.uuid = this.user[1].trim() || this.uuid;
+            this.accountId = `legacy:${shortToken(this.token)}`;
+        }
+    }
+
+    async run() {
+        if (this.isLegacyToken) {
+            $.log(`账号[${this.index}] 检测到旧版 authorization#uuid 格式，先迁移到缓存`);
+            this.saveCachedToken();
+        } else {
+            if (!this.yybAccount.ref) {
+                $.log(`账号[${this.index}] ❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID，或旧版 authorization#uuid 手动token）`);
+                return;
+            }
+            const cached = this.getCachedToken();
+            if (cached?.accessToken) {
+                this.applyToken(cached);
+                $.log(`账号[${this.index}] 使用缓存token: ${shortToken(this.token)}`);
+                if (!(await this.checkToken())) {
+                    $.log(`账号[${this.index}] 缓存token失效，尝试用 refresh_token 续期`);
+                    if (!(await this.refreshAccessToken())) {
+                        this.removeCachedToken();
+                        $.log(`账号[${this.index}] 续期失败，重新登录`);
+                    }
+                }
+            }
+
+            if (!this.token) {
+                if (!PHONE_LOGIN) {
+                    $.log(
+                        `账号[${this.index}] 没有可用 token：海天唯一的登录接口 wechat/mini/phoneNew/login 需要微信手机号授权的加密数据(小程序里就是“手机号快捷登录”)，而你把 haitian_phone_login 置成了 0。\n` +
+                            `  两种办法二选一：\n` +
+                            `  1) 允许手机号授权 -> 去掉 haitian_phone_login 或置 1，脚本自动用 YYB 的 /wxapp/getPhoneNumber 登录；\n` +
+                            `  2) 继续不授权 -> 自行抓一次小程序请求，把 Authorization 和 uuid 按 authorization${strSplitor}uuid 填进 ${ckName} 变量`
+                    );
+                    return;
+                }
+                await this.loginByWxCode();
+                if (!this.token) return;
+            }
+        }
+
+        await this.getUserInfo();
+        if (!this.userFlag) return;
+
+        await this.task_1();
+        await this.task_2();
+        await this.getSignActivity();
+
+        if (this.activity_code) {
+            await this.signIn();
+            if (await this.getLotteryTaskList()) await this.getLotteryNum();
+        }
+    }
+
+    cacheKey() {
+        return this.isLegacyToken ? this.accountId : yybCacheKey(this.yybAccount.server, this.yybAccount.ref);
+    }
+
+    getCachedToken() {
+        const cache = readTokenCache();
+        return cache[this.cacheKey()] || null;
+    }
+
+    saveCachedToken() {
+        if (!this.token) return;
+        const cache = readTokenCache();
+        cache[this.cacheKey()] = {
+            accessToken: this.token,
+            refreshToken: this.refreshToken,
+            communityToken: this.communityToken,
+            uuid: this.uuid,
+            userInfo: this.userInfo,
+            updatedAt: new Date().toISOString(),
+        };
+        writeTokenCache(cache);
+    }
+
+    removeCachedToken() {
+        const cache = readTokenCache();
+        if (cache[this.cacheKey()]) {
+            delete cache[this.cacheKey()];
+            writeTokenCache(cache);
+        }
+        this.token = "";
+        this.refreshToken = "";
+        this.communityToken = "";
+        this.userInfo = {};
+    }
+
+    applyToken(data = {}) {
+        this.token = data.accessToken || data.token || "";
+        this.refreshToken = data.refreshToken || "";
+        this.communityToken = data.communityToken || "";
+        this.uuid = data.uuid || this.uuid;
+        this.userInfo = data.userInfo || {};
+    }
+
+    headers(extra = {}, auth = true, isJson = false) {
+        const headers = {
+            "Connection": "keep-alive",
+            "envVersion": "release",
+            "Content-Type": isJson ? "application/json" : "application/x-www-form-urlencoded",
+            "uuid": this.uuid,
+            "Accept-Encoding": "gzip,compress,br,deflate",
+            "User-Agent": defaultUserAgent,
+            "Referer": `https://servicewechat.com/${MINI_APP_ID}/${PAGE_VERSION}/page-frame.html`,
+            ...extra,
+        };
+        if (auth) {
+            headers.Authorization = this.token;
+            if (this.communityToken) headers["X-Haday-Token"] = this.communityToken;
+        }
+        return headers;
+    }
+
+    async request(pathname, { method = "GET", params, data, auth = true, isJson = false, base = API_BASE } = {}) {
+        const options = {
+            method,
+            url: `${base}${pathname}`,
+            params,
+            headers: this.headers({}, auth, isJson),
+            timeout: 20000,
+            validateStatus: () => true,
+        };
+        if (data !== undefined) options.data = isJson ? data : new URLSearchParams(data).toString();
+
+        const { data: result, status } = await axios.request(options);
+        if (status === 401 || status === 403) throw new Error(`HTTP ${status}: ${result?.message || JSON.stringify(result)}`);
+        if (status < 200 || status >= 300) throw new Error(`HTTP ${status}: ${JSON.stringify(result)}`);
+        if (result && typeof result === "object" && result.code && !["200", "0"].includes(String(result.code))) {
+            throw new Error(`${result.code} ${result.message || result.msg || JSON.stringify(result)}`.trim());
+        }
+        return result;
+    }
+
+    /**
+     * 取【手机号】授权的加密数据。
+     * YYB 手机号授权结果里带 encryptedData/iv（等同 getPhoneNumber 回调里的字段）；
+     * 注意不能用普通用户资料，那个只有 nickName/avatarUrl 等字段，
+     * 服务端解不出 phoneNumber，固定回 500 E131 登录失败。
+     */
+    async getPhoneAuthData() {
+        const { data } = await this.wechat.getPhoneNumber(this.yybAccount.ref);
+        const result = data.data || {};
+        let raw = result.raw || {};
+        if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+        const edata = result.encryptedData || result.encrypted_data || raw.encryptedData || raw.encrypted_data || "";
+        const iv = result.iv || raw.iv || "";
+        if (!edata || !iv) throw new Error(`YYB /wxapp/getPhoneNumber 未返回手机号加密数据: ${JSON.stringify(result)}`);
+        return { edata, iv };
+    }
+
+    /** 手机号授权之后再取一次 wx.login code（顺序和小程序一致） */
+    async getLoginCode() {
+        const { data } = await this.wechat.getCode(this.yybAccount.ref);
+        return data.data.code;
+    }
+
+    async getArticleIds() {
+        try {
+            const result = await this.request("/pages/REGISTRATION_AGREEMENT,PRIVACY_PROTECTION_CLAUSE/articles/list", {
+                base: BASE_API,
+                auth: false,
+            });
+            const ids = Array.isArray(result) ? result.map(item => item.article_id).filter(Boolean) : [];
+            return ids.join(",");
+        } catch (e) {
+            $.log(`账号[${this.index}] 获取协议ID失败，继续登录: ${e.message || e}`);
+            return "";
+        }
+    }
+
+    async loginByWxCode() {
+        try {
+            const { edata, iv } = await this.getPhoneAuthData();
+            const code = await this.getLoginCode();
+            const articleIds = await this.getArticleIds();
+            const params = {
+                edata,
+                iv,
+                code,
+                uuid: this.uuid,
+                article_ids: articleIds,
+                app_versions: "1.0.0",
+            };
+            const result = await this.request("/wechat/mini/phoneNew/login", {
+                method: "POST",
+                params,
+                auth: false,
+            });
+            const token = result?.access_token || result?.accessToken || "";
+            if (!result?.success || !token) throw new Error(`登录响应未返回token: ${JSON.stringify(result)}`);
+            this.token = token;
+            this.refreshToken = result.refresh_token || result.refreshToken || "";
+            await this.loginCommunityToken().catch(() => {});
+            this.saveCachedToken();
+            $.log(`账号[${this.index}] 手机号授权登录成功: ${shortToken(this.token)}`);
+        } catch (e) {
+            $.log(`账号[${this.index}] 登录失败: ${e.message || e}`);
+        }
+    }
+
+    /** access_token 续期：vendor.js:13707 POST /passport/token {refresh_token} */
+    async refreshAccessToken() {
+        if (!this.refreshToken) return false;
+        try {
+            const result = await this.request("/passport/token", {
+                method: "POST",
+                data: { refresh_token: this.refreshToken },
+                auth: false,
+            });
+            const token = result?.accessToken || result?.access_token || "";
+            if (!token) return false;
+            this.token = token;
+            this.refreshToken = result.refreshToken || result.refresh_token || this.refreshToken;
+            await this.loginCommunityToken().catch(() => {});
+            this.saveCachedToken();
+            $.log(`账号[${this.index}] token续期成功: ${shortToken(this.token)}`);
+            return await this.checkToken();
+        } catch (e) {
+            $.log(`账号[${this.index}] token续期失败: ${e.message || e}`);
+            return false;
+        }
+    }
+
+    async loginCommunityToken() {
+        if (!this.token) return;
+        const result = await this.request("/wx/auth/loginByToken", {
+            method: "POST",
+            base: "https://cmallwap.xkmm.cn/haday",
+            data: { access_token: this.token },
+            auth: false,
+            isJson: true,
+        });
+        this.communityToken = result?.data || result || "";
+        this.saveCachedToken();
+    }
+
+    async checkToken() {
+        try {
+            await this.request("/members");
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async getUserInfo() {
+        try {
+            const result = await this.request("/members");
+            if (result?.member_id) {
+                this.userInfo = result;
+                this.saveCachedToken();
+                $.log(`🌸账号[${this.index}] [${result.member_id}][${maskPhone(result.mobile)}] 当前积分[${result.consum_point}]🎉`);
+                this.userFlag = true;
+            } else {
+                $.log(`🌸账号[${this.index}] 查询-失败:${JSON.stringify(result)}❌`);
+            }
+        } catch (e) {
+            const message = e.message || e;
+            $.log(`🌸账号[${this.index}] 查询-失败:${message}❌`);
+            if (isTokenError(message)) this.removeCachedToken();
+        }
+    }
+
+    async getSignActivity() {
+        try {
+            const result = await this.request("/sign/activity/code", {
+                params: { activityCode: "" },
+            });
+            if (result?.activity_code) {
+                $.log(`获取活动信息成功，活动ID：${result.activity_code}`);
+                this.activity_code = result.activity_code;
+            } else {
+                $.log(`获取活动信息失败:${JSON.stringify(result)}❌`);
+            }
+        } catch (e) {
+            $.log(`获取活动信息失败:${e.message || e}❌`);
+        }
+    }
+
+    async signIn() {
+        try {
+            const result = await this.request("/sign/activity/sign", {
+                method: "POST",
+                isJson: true,
+                data: { activity_code: this.activity_code, fill_date: "" },
+            });
+            if (result?.is_sign === true || result?.success === true) {
+                $.log("签到成功");
+            } else if (isAlreadySigned(JSON.stringify(result))) {
+                $.log("今日已签到");
+            } else {
+                $.log(`签到失败 [${result?.message || JSON.stringify(result)}]`);
+            }
+        } catch (e) {
+            const message = String(e.message || e);
+            if (isAlreadySigned(message)) {
+                $.log("今日已签到");
+                return;
+            }
+            $.log(`签到失败 [${message}]`);
+            if (isTokenError(message)) this.removeCachedToken();
+        }
+    }
+
+    async task_1() {
+        try {
+            const result = await this.request("/members/browsePage", {
+                method: "POST",
+                data: {},
+            });
+            if (result?.code == 200 || result?.statusCode == 200 || result === "") {
+                $.log("浏览界面 操作成功");
+            } else {
+                $.log(`浏览界面 操作失败[${JSON.stringify(result)}]`);
+            }
+        } catch (e) {
+            $.log(`浏览界面 操作失败[${e.message || e}]`);
+        }
+    }
+
+    async task_2() {
+        try {
+            const result = await this.request("/members/commnity/brosing/duration/add", {
+                method: "POST",
+                params: { seconds: 10 },
+                data: {},
+            });
+            if (result?.statusCode == 200 || result?.code == 200 || result === "") {
+                $.log("浏览社区 操作成功");
+            } else {
+                $.log(`浏览社区 操作失败 貌似是正常的 [${JSON.stringify(result)}]`);
+            }
+        } catch (e) {
+            $.log(`浏览社区 操作失败 貌似是正常的 [${e.message || e}]`);
+        }
+    }
+
+    async doLottery() {
+        try {
+            const result = await this.request("/lucky/activity/extract", {
+                params: { activityCode: `jfcj${this.activity_code}` },
+            });
+            if (result?.lucky_record_vo) {
+                $.log(`🌸账号[${this.index}]🕊抽奖结果:${result.lucky_record_vo.prize_name}🎉`);
+                return true;
+            }
+            $.log(`🌸账号[${this.index}] 抽奖-失败:${JSON.stringify(result)}❌`);
+        } catch (e) {
+            const message = String(e.message || e);
+            if (isActivityClosed(message)) {
+                $.log(`🌸账号[${this.index}] 抽奖活动已结束，跳过`);
+                return false;
+            }
+            $.log(`🌸账号[${this.index}] 抽奖-失败:${message}❌`);
+        }
+        return false;
+    }
+
+    /** 返回 false 表示抽奖活动已关闭，外层不用再查次数 */
+    async getLotteryTaskList() {
+        try {
+            const result = await this.request(`/lucky/task/package/jfcj${this.activity_code}`);
+            if (result?.member_id) {
+                $.log(`🌸账号[${this.index}]🕊抽奖次数任务🎉`);
+                for (const task of result.task_list || []) {
+                    if (task.today_available_task_number >= 1 && task.today_obtained_task_number < task.today_available_task_number) {
+                        if (task.task_key === "LOGIN") {
+                            $.log(`🌸账号[${this.index}]🕊正在完成任务:${task.task_name}🎉`);
+                            const res = await this.request(`/lucky/task/getLoginOpporturnity/jfcj${this.activity_code}`, {
+                                method: "PUT",
+                                data: {},
+                            });
+                            $.log(JSON.stringify(res));
+                        }
+                        if (task.task_key === "BROWSE_PAGE_TASK") {
+                            $.log(`🌸账号[${this.index}]🕊正在完成任务:${task.task_name}🎉`);
+                            await this.lotteryTaskBrowser(task.link);
+                        }
+                    }
+                }
+                return true;
+            }
+            $.log(`🌸账号[${this.index}] 抽奖次数任务-失败:${JSON.stringify(result)}❌`);
+        } catch (e) {
+            const message = String(e.message || e);
+            if (isActivityClosed(message)) {
+                $.log(`🌸账号[${this.index}] 积分抽奖活动未开始或已结束，跳过抽奖`);
+                return false;
+            }
+            $.log(`🌸账号[${this.index}] 抽奖次数任务-失败:${message}❌`);
+        }
+        return true;
+    }
+
+    async lotteryTaskBrowser(link) {
+        await this.request(`/lucky/task/browse/page/start/jfcj${this.activity_code}`, {
+            params: { pageUrl: link },
+        }).catch(() => {});
+        await $.wait(20 * 1000);
+        await this.request(`/lucky/task/browse/page/end/jfcj${this.activity_code}`, {
+            params: { pageUrl: link },
+        }).catch(() => {});
+    }
+
+    async getLotteryNum() {
+        try {
+            const result = await this.request("/lucky/activity/opporturnity", {
+                params: { activityCode: `jfcj${this.activity_code}` },
+            });
+            if (result?.can_use > 0) {
+                $.log(`当前剩余抽奖次数：${result.can_use}`);
+                for (let can = 0; can < result.can_use; can++) {
+                    // 活动已结束时不再空转
+                    if (!(await this.doLottery())) break;
+                }
+            } else {
+                $.log("当前剩余抽奖次数0");
+            }
+        } catch (e) {
+            const message = String(e.message || e);
+            if (isActivityClosed(message)) {
+                $.log("抽奖活动未开始或已结束，跳过");
+                return;
+            }
+            $.log(`查询抽奖次数失败:${message}`);
+        }
+    }
+}
+
+!(async () => {
+    await getNotice();
+    $.checkEnv("YYB_SERVER");
+    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
+    $.userCount = $.userList.length;
+    if (!$.userCount) { $.log(`未找到变量 YYB_SERVER 或 ${ckName}`); return; }
+    for (const user of $.userList) {
+        await new Task(user).run();
+    }
+})()
+    .catch((e) => console.log(e))
+    .finally(() => $.done());
+
+async function getNotice() {
+    try {
+        const { data: res } = await axios.request({
+            url: "https://ghproxy.net/https://raw.githubusercontent.com/smallfawn/Note/refs/heads/main/Notice.json",
+            headers: { "User-Agent": defaultUserAgent },
+            timeout: 3000,
+        });
+        $.log(res);
+        return res;
+    } catch (e) {}
+}

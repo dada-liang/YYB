@@ -26,7 +26,7 @@ const API_BASE = "https://h5.youzan.com";
 const TOKEN_CACHE_FILE = path.join(__dirname, "fej_token_cache.json");
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) MicroMessenger/3.9.12 MiniProgramEnv/Windows WindowsWechat/WMPF";
 
-function parseYYBAccount(raw = "") { const text = String(raw).trim(); const at = text.lastIndexOf("@"); if (at <= 0) return { server: "", openid: "" }; const server = text.slice(0, at).trim().replace(/\/$/, ""); return { server: /^https?:\/\//i.test(server) ? server : `http://${server}`, openid: text.slice(at + 1).split("#")[0].trim() }; }
+function parseYYBAccount(raw = "") { const text = String(raw).trim(); const at = text.lastIndexOf("@"); if (at <= 0) return { server: "", openid: "" }; const server = text.slice(0, at).trim().replace(/\/+$/, ""); return { server: /^https?:\/\//i.test(server) ? server : `http://${server}`, openid: text.slice(at + 1).split("#")[0].trim() }; }
 
 function readTokenCache() {
     try {
@@ -168,8 +168,8 @@ class Task {
 
     async getLoginCode() {
         const { status, data } = await axios.post(`${this.server}/wxapp/getCode`, { ref: this.openid, app_id: MINI_APP_ID }, { headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true });
-        const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
-        if (status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${JSON.stringify(data)}`);
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (status < 200 || status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${JSON.stringify(data)}`);
         return code;
     }
 
@@ -246,7 +246,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) { $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID"); return; }
     for (const openid of $.userList) {
         await new Task(openid).run();

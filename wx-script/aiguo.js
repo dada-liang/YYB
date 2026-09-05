@@ -67,7 +67,7 @@ function parseYYBAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const rawServer = text.slice(0, at).trim().replace(/\/$/, "");
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
     const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
     const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, openid, remark: remark || "" };
@@ -83,11 +83,8 @@ async function getYYBCode(server, ref, appId) {
         validateStatus: () => true,
     });
     const payload = response.data || {};
-    const code = payload?.data?.result?.code
-        || payload?.data?.code
-        || payload?.result?.code
-        || payload?.code;
-    if (response.status !== 200 || !code || typeof code !== "string") {
+    const code = payload?.data?.result?.code || payload?.result?.code;
+    if (response.status < 200 || response.status >= 300 || Number(payload?.code) !== 0 || !code || typeof code !== "string") {
         throw new Error(`YYB Go 取 code 失败: ${JSON.stringify(payload)}`);
     }
     return code;
@@ -219,7 +216,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) {
         $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
         return;

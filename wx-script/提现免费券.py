@@ -107,14 +107,16 @@ def getjscode(server: str, openid: str) -> list[str]:
     except requests.RequestException as err:
         raise ClaimError(f"YYB Go 请求失败：{err}") from err
 
-    if resp.status_code != 200:
+    if not 200 <= resp.status_code < 300:
         raise ClaimError(f"YYB Go 返回 HTTP {resp.status_code}：{resp.text}")
 
     data = resp.json()
+    if data.get("code") != 0:
+        raise ClaimError(f"YYB Go 取 code 失败：{data.get('msg') or data}")
     payload = data.get("data") if isinstance(data.get("data"), dict) else {}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     root_result = data.get("result") if isinstance(data.get("result"), dict) else {}
-    code = result.get("code") or payload.get("code") or root_result.get("code") or data.get("code")
+    code = result.get("code") or root_result.get("code")
     if not isinstance(code, str) or not code:
         raise ClaimError(f"YYB Go 未返回 code：{data}")
     return [code]

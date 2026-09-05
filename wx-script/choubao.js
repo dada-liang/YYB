@@ -33,7 +33,7 @@ class Task {
         this.user = env.split(strSplitor);
         const raw = this.user[0] || "";
         const at = raw.lastIndexOf("@");
-        this.server = at > 0 ? raw.slice(0, at).trim().replace(/\/$/, "") : "";
+        this.server = (at > 0 ? raw.slice(0, at) : "").trim().replace(/\/+$/, "");
         if (this.server && !/^https?:\/\//i.test(this.server)) this.server = `http://${this.server}`;
         this.wcsid = at > 0 ? raw.slice(at + 1).trim() : "";
         this.remark = this.user[1] || "";
@@ -47,8 +47,8 @@ class Task {
         }, {
             headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
         });
-        const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
-        if (status === 200 && typeof code === "string" && code) await this.getUserToken(code)
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (status >= 200 && status < 300 && Number(data?.code) === 0 && typeof code === "string" && code) await this.getUserToken(code)
         if (!this.token) {
             $.log(`账号[${this.index}] 获取用户Token失败❌`)
             return
@@ -206,7 +206,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) {
         $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
         return;

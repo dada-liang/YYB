@@ -8,12 +8,12 @@ cron: 30 8 * * *
 变量名：jingjianx_all
 变量值：YYB服务器地址@账号ID或OpenID，多账号用 & 或换行
 
+账号来源：环境变量 YYB_SERVER（服务器地址@账号ID或OpenID）；
 也兼容原单脚本变量名，如 xswj、dywj、afdacw、super101cmdwyd 等。
 总变量可用 appid=openid、变量名=openid、小程序名=openid 指定单个小程序账号。
 
 依赖变量：
-wx_server_url  默认 http://192.168.31.196:8787
-wx_auth        必填，wx_server 鉴权值
+YYB_SERVER     服务器地址@账号ID或OpenID，多账号换行或 & 分隔
 ------------------------------------------
 */
 
@@ -25,7 +25,6 @@ const path = require("path");
 const WeChatServer = require("./wcs.js");
 
 const CK_NAME = "jingjianx_all";
-const WX_SERVER_URL = process.env.wx_server_url || "http://192.168.31.196:8787";
 const CACHE_FILE = path.join(__dirname, "jingjianx_all_token_cache.json");
 const USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) MicroMessenger/3.9.12 MiniProgramEnv/Windows WindowsWechat/WMPF";
@@ -263,12 +262,13 @@ function parseEntries(raw = "") {
 function parseYYBAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
-    const rawServer = at > 0 ? text.slice(0, at) : WX_SERVER_URL;
-    const identity = at > 0 ? text.slice(at + 1) : text;
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1);
     const hash = identity.indexOf("#");
     const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
-    const value = rawServer.trim().replace(/\/+$/, "");
-    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    if (!rawServer || !ref) return null;
+    const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, ref };
 }
 
@@ -296,6 +296,7 @@ class AppContext {
 
     async getCode(account) {
         const parsed = parseYYBAccount(account);
+        if (!parsed) throw new Error(`YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID）: ${account}`);
         const wechat = new WeChatServer({ url: parsed.server, appid: this.app.appid, auth: process.env.wx_auth || "" });
         const { data } = await wechat.getCode(parsed.ref);
         return data.data.code;
@@ -343,7 +344,7 @@ class ShopTask {
             shopName: String(shop.shopName || `门店${shop.shopId}`).trim(),
         };
         this.account = String(account || "").trim();
-        this.yybAccount = parseYYBAccount(this.account);
+        this.yybAccount = parseYYBAccount(this.account) || {};
         this.index = index;
         this.token = "";
         this.isMember = false;
@@ -613,7 +614,7 @@ class ShopTask {
 }
 
 !(async () => {
-    const totalEntries = parseEntries(process.env.YYB_SERVER || process.env[CK_NAME] || "");
+    const totalEntries = parseEntries(process.env.YYB_SERVER || "").concat(parseEntries(process.env[CK_NAME] || ""));
     const summaries = [];
 
     for (const app of APPS) {

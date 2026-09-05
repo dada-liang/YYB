@@ -185,8 +185,10 @@ class Task {
       headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
     });
     const data = res.data || {};
-    const code = data?.result?.code || data?.data?.result?.code || data?.data?.code || data?.code;
-    if (res.status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 未返回 code: ${JSON.stringify(data)}`);
+    const code = data?.data?.result?.code || data?.result?.code;
+    if (res.status < 200 || res.status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") {
+      throw new Error(`YYB Go 未返回 code: ${data?.msg || JSON.stringify(data)}`);
+    }
     this.wxcode = code;
     return code;
   }
@@ -213,18 +215,8 @@ class Task {
         return null;
       }
     };
-    const sources = [
-      payload,
-      payload.result,
-      payload.data,
-      payload.data?.result,
-      payload.result?.data,
-      payload.data?.data,
-      payload.raw,
-      payload.result?.raw,
-      payload.data?.raw,
-      payload.data?.result?.raw,
-    ].map(asObject).filter(Boolean);
+    const result = payload.data?.result || payload.result || {};
+    const sources = [result, result?.raw].map(asObject).filter(Boolean);
     const valueOf = (...names) => {
       for (const source of sources) {
         for (const name of names) {
@@ -238,7 +230,7 @@ class Task {
       iv: valueOf("iv", "IV"),
       encryptedData: valueOf("encryptedData", "encrypted_data"),
     };
-    if (response.status !== 200 || !info.iv || !info.encryptedData) {
+    if (response.status < 200 || response.status >= 300 || Number(payload?.code) !== 0 || !info.iv || !info.encryptedData) {
       throw new Error(`YYB Go 手机号授权数据不完整: HTTP ${response.status} ${JSON.stringify(payload)}`);
     }
     return info;

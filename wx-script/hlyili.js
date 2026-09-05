@@ -1,37 +1,61 @@
 /*
 ------------------------------------------
-@Description: 白马智选 - 微信小程序静默登录 + 每日签到
-cron: 14 9 * * *
+@Description: 活力伊利 - 微信小程序静默登录 + 每日签到
+cron: 48 8 * * *
 ------------------------------------------
-青龙变量：YYB_SERVER=yyb-go:8000@账号ID或OpenID
-多账号用 & 或换行分隔，可在账号后加 #备注
+变量名：hlyili
+变量值：YYB服务器地址@账号ID或OpenID，多账号用 & 或换行分隔（可加 #备注）
+
+依赖变量：
+YYB_SERVER     服务器地址@账号ID或OpenID，多账号换行或 & 分隔
 ------------------------------------------
-契约（appid wx51f8cb2a7578f42f，host min.51afa.com/module/integralApi）：
-  登录  POST /login.html   form: code=<code>&company_id=1&_cache_=1
-          -> status 为真，token 在 data.token（也兼容 accessToken / userInfo.token 等写法）
-  签到  POST /sign.html    form: token=<token>&timestamp=<毫秒>&company_id=1
-          并且要带请求头 act: do_sign（这个后端按 act 头区分动作，同一路径多用途）
-  token 是放在 body 里的，不是请求头
+契约（appid wx06af0ef532292cd3，host msmarket.msx.digitalyili.com/gateway/api）：
+  这套后端在微信云网关后面，除了业务头还要一组 x-wx-* 网关模拟头，缺了会被网关挡：
+    X-WX-HTTP-MODE=REROUTE / X-WX-CONF-VERSION=0 / x-wx-call-id=<毫秒-随机>
+    x-wx-route-tag=a1d5c552d-wx06af0ef532292cd3.sh.wxgateway.com / x-wx-source=wx_client
+    x-wx-appid=<appid> / x-envoy-expected-rq-timeout-ms=15000
+  业务头：access-token / tenant-id=1559474730809618433 / scene=1008 /
+          atv-page / forward-appid / register-source / source-type（都传空串）
+  Referer 要用 .../release/page-frame.html 这种形式
+  登录  POST /auth/account/login  {jsCode:<code>}  -> status===true, data.accessToken
+  积分  GET  /member/point                        -> data 直接是数字
+  签到  POST /member/daily/sign?isUseNewLogic=1    （状态查询是 GET /member/sign/status）
+  成功判定是 status===true（不是 code），错误在 error
 ------------------------------------------
 */
 
 const { Env, yybCacheKey } = require("./env.js");
-const $ = new Env("白马智选");
+const $ = new Env("活力伊利");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
+const WeChatServer = require("./wcs.js");
 
-const MINI_APP_ID = "wx51f8cb2a7578f42f";
-const BASE = "https://min.51afa.com/module/integralApi";
+const ckName = "hlyili";
+const MINI_APP_ID = "wx06af0ef532292cd3";
+const BASE = "https://msmarket.msx.digitalyili.com/gateway/api";
+const TENANT_ID = "1559474730809618433";
+const GATEWAY_DOMAIN = "a1d5c552d-wx06af0ef532292cd3.sh.wxgateway.com";
 
-const TOKEN_CACHE_FILE = path.join(__dirname, "baimazhixuan_token_cache.json");
+const TOKEN_CACHE_FILE = path.join(__dirname, "hlyili_token_cache.json");
 const USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; M2012K11AC Build/SKQ1.220303.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) " +
     "Version/4.0 Chrome/134.0.6998.136 Mobile Safari/537.36 MicroMessenger/8.0.48.2580(0x28003036) MiniProgramEnv/android";
 
-const EP_LOGIN = "/login.html";
-const EP_SIGN = "/sign.html";
-const EP_USER = null;
+const EP_LOGIN = "/auth/account/login";
+const EP_SIGN = "/member/daily/sign";
+const EP_USER = "/member/point";
+
+function parseAccount(raw = "") {
+    const text = String(raw).trim(), at = text.lastIndexOf("@");
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1), hash = identity.indexOf("#");
+    const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
+    const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
+    if (!rawServer || !ref) return null;
+    return { server: /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`, ref, openid: ref, remark };
+}
 
 function readCache() {
     try {
@@ -50,14 +74,6 @@ function writeCache(cache) {
     }
 }
 
-function parseAccount(raw = "") {
-    const text = String(raw).trim();
-    const at = text.lastIndexOf("@");
-    if (at <= 0) return { server: "", openid: "", remark: "" };
-    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
-    const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
-    return { server: /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`, openid, remark: remark || "" };
-}
 
 function short(v, n = 200) {
     const t = typeof v === "string" ? v : JSON.stringify(v);
@@ -71,8 +87,8 @@ function form(obj) {
 }
 
 /** 该后端的成功判定 */
-const isOk = (res) => Number(res?.status) === 1 || Number(res?.status) === 200 || res?.status === true || Number(res?.code) === 0 || Number(res?.code) === 200;
-const msgOf = (res) => res?.msg || res?.message || res?.msg || short(res);
+const isOk = (res) => res?.status === true;
+const msgOf = (res) => res?.error || res?.message || res?.msg || short(res);
 /** 每天跑一次，「已签到」必须当成成功而不是失败 */
 const isAlreadyDone = (t) => /已签|已经签|签到过|重复|已完成|already/i.test(String(t || ""));
 const isAuthError = (t) => /登录|token|未授权|未登录|失效|过期|重新|401/i.test(String(t || ""));
@@ -82,8 +98,9 @@ const isNotRegistered = (t) => /未注册|未绑定|请先注册|请先绑定|no
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw);
-        this.cacheKey = yybCacheKey(this.account.server, this.account.openid);
+        this.account = parseAccount(raw) || {};
+        this.cacheKey = yybCacheKey(this.account.server, this.account.ref);
+        this.wechat = this.account.server ? new WeChatServer({ url: this.account.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" }) : null;
         this.token = "";
         this.signedToday = false;
         // 设备号按 openid 稳定派生：同一账号每次跑都一样，避免被当成新设备
@@ -96,18 +113,32 @@ class Task {
     }
 
     async request(apiPath, body = null, withAuth = true, method = "POST", query = null, epHeaders = null) {
-        const isForm = true;
+        const isForm = false;
         const headers = {
             "Content-Type": isForm ? "application/x-www-form-urlencoded" : "application/json",
             "User-Agent": USER_AGENT,
             Referer: `https://servicewechat.com/${MINI_APP_ID}/0/page-frame.html`,
             Accept: "application/json, text/plain, */*",
             xweb_xhr: "1",
+            "Origin": "https://servicewechat.com",
+            "Referer": `https://servicewechat.com/${MINI_APP_ID}/release/page-frame.html`,
+            "tenant-id": TENANT_ID,
+            "scene": "1008",
+            "atv-page": "",
+            "forward-appid": "",
+            "register-source": "",
+            "source-type": "",
+            "X-WX-HTTP-MODE": "REROUTE",
+            "X-WX-CONF-VERSION": "0",
+            "x-wx-call-id": `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            "x-wx-route-tag": GATEWAY_DOMAIN,
+            "x-wx-source": "wx_client",
+            "x-wx-appid": MINI_APP_ID,
+            "x-envoy-expected-rq-timeout-ms": "15000",
             ...(epHeaders || {}),
         };
-        // token 放 body，见下面各处 token
+        if (withAuth && this.token) headers["access-token"] = this.token;
         const payload = body || {};
-        if (withAuth && this.token) payload["token"] = this.token;
 
         const isGet = String(method).toUpperCase() === "GET";
         // query 独立于 body：有些接口是 POST 但参数只在查询串上
@@ -129,22 +160,20 @@ class Task {
         return res.data;
     }
 
+    /**
+     * wcs.getCode 在 status:false 时也会 resolve，必须自己判失败，
+     * 否则 wx_server 的取码限流会被误报成目标站登录失败。
+     */
     async getCode() {
-        const { status, data } = await axios.post(`${this.account.server}/wxapp/getCode`, {
-            ref: this.account.openid, app_id: MINI_APP_ID,
-        }, {
-            headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
-        });
-        const code = data?.data?.result?.code || data?.result?.code;
-        if (status < 200 || status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
-        return code;
+        const { data } = await this.wechat.getCode(this.account.ref);
+        return data.data.code;
     }
 
     async login() {
         const code = await this.getCode();
-        const res = await this.request(EP_LOGIN, { code, company_id: 1, _cache_: 1 }, false, "POST", null, null);
+        const res = await this.request(EP_LOGIN, { jsCode: code }, false, "POST", null, null);
         if (!isOk(res)) throw new Error(`登录失败: ${msgOf(res)}`);
-        this.token = ((res.data || {}).token || (res.data || {}).accessToken || ((res.data || {}).userInfo || {}).token) || "";
+        this.token = (res.data || {}).accessToken || "";
 
         if (!this.token) throw new Error(`登录未返回 token: ${short(res)}`);
         const cache = readCache();
@@ -169,7 +198,7 @@ class Task {
 
     async queryUser(needLog = true) {
         if (!EP_USER) return true;
-        const res = await this.request(EP_USER, {}, true, "POST", null, null);
+        const res = await this.request(EP_USER, {}, true, "GET", null, null);
         if (!isOk(res)) {
             if (needLog) this.log(`读取资料失败: ${msgOf(res)}`);
             return false;
@@ -188,7 +217,7 @@ class Task {
     }
 
     async sign(retry = true) {
-        const res = await this.request(EP_SIGN, { timestamp: Date.now(), company_id: 1 }, true, "POST", null, { act: "do_sign" });
+        const res = await this.request(EP_SIGN, {}, true, "POST", { isUseNewLogic: 1 }, null);
         if (isOk(res)) return this.log("✅ 签到成功");
         if (isAlreadyDone(msgOf(res))) return this.log(`✅ 今日已签到（${msgOf(res)}）`);
         if (isNotRegistered(msgOf(res))) {
@@ -204,8 +233,8 @@ class Task {
     }
 
     async run() {
-        if (!this.account.openid) {
-            this.log("跳过：变量值里没有 openid");
+        if (!this.account.ref) {
+            this.log("❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID）");
             return;
         }
         try {
@@ -220,8 +249,11 @@ class Task {
 
 !(async () => {
     $.checkEnv("YYB_SERVER");
+    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
+    $.userCount = $.userList.length;
     if (!$.userCount) {
-        $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
+        $.log(`未找到变量 YYB_SERVER 或 ${ckName}`);
         return;
     }
     for (let i = 0; i < $.userList.length; i++) {

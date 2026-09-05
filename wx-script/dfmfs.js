@@ -53,7 +53,7 @@ function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const server = text.slice(0, at).trim().replace(/\/$/, "");
+    const server = text.slice(0, at).trim().replace(/\/+$/, "");
     const [openid, remark] = text.slice(at + 1).split("#").map((s) => (s || "").trim());
     return {
         server: /^https?:\/\//i.test(server) ? server : `http://${server}`,
@@ -119,8 +119,8 @@ class Task {
             headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
         });
         const data = res.data || {};
-        const code = data?.result?.code || data?.data?.result?.code || data?.data?.code || data?.code;
-        if (res.status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (res.status < 200 || res.status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
         return code;
     }
     async getPhoneCode() {
@@ -130,8 +130,11 @@ class Task {
                 timeout: 30000, validateStatus: () => true,
             });
             const d = res.data || {};
-            const code = d?.result?.code || d?.result?.phoneCode || d?.data?.result?.code || d?.data?.result?.phoneCode || d?.data?.code || d?.code;
-            if (res.status !== 200 || !code || typeof code !== "string") throw new Error(short(d));
+            const result = d?.data?.result || d?.result || {};
+            let raw = result?.raw || {};
+            if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+            const code = result.code || result.phoneCode || result.phone_code || raw.code || raw.phoneCode || raw.phone_code;
+            if (res.status < 200 || res.status >= 300 || Number(d?.code) !== 0 || !code || typeof code !== "string") throw new Error(short(d));
             return code;
         } catch (e) { this.log(`取手机号code异常: ${e.message || e}`); return ""; }
     }
@@ -215,7 +218,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) { $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID"); return; }
     for (let i = 0; i < $.userList.length; i++) {
         await new Task($.userList[i]).run();

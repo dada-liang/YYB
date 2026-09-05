@@ -6,7 +6,7 @@
 定时：11 11 * * *
 */
 
-const { Env } = require("./env.js");
+const { Env, yybCacheKey } = require("./env.js");
 const $ = new Env("康师傅畅饮社");
 const axios = require("axios");
 const fs = require("fs");
@@ -58,7 +58,7 @@ function parseYYBAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const rawServer = text.slice(0, at).trim().replace(/\/$/, "");
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
     const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
     const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, openid, remark: remark || "" };
@@ -71,6 +71,7 @@ class Task {
         this.server = account.server;
         this.openid = account.openid;
         this.remark = account.remark;
+        this.cacheKey = yybCacheKey(this.server, this.openid);
         this.token = "";
         this.member = {};
     }
@@ -103,13 +104,13 @@ class Task {
 
     getCachedToken() {
         const cache = readTokenCache();
-        return cache[this.openid] || null;
+        return cache[this.cacheKey] || null;
     }
 
     saveCachedToken() {
         if (!this.token) return;
         const cache = readTokenCache();
-        cache[this.openid] = {
+        cache[this.cacheKey] = {
             token: this.token,
             member: this.member,
             updatedAt: new Date().toISOString(),
@@ -119,8 +120,8 @@ class Task {
 
     removeCachedToken() {
         const cache = readTokenCache();
-        if (cache[this.openid]) {
-            delete cache[this.openid];
+        if (cache[this.cacheKey]) {
+            delete cache[this.cacheKey];
             writeTokenCache(cache);
         }
         this.token = "";
@@ -170,11 +171,8 @@ class Task {
             validateStatus: () => true,
         });
         const payload = response.data || {};
-        const code = payload?.data?.result?.code
-            || payload?.data?.code
-            || payload?.result?.code
-            || payload?.code;
-        if (response.status !== 200 || !code || typeof code !== "string") {
+        const code = payload?.data?.result?.code || payload?.result?.code;
+        if (response.status < 200 || response.status >= 300 || Number(payload?.code) !== 0 || !code || typeof code !== "string") {
             throw new Error(`YYB Go 取 code 失败: ${JSON.stringify(payload)}`);
         }
         return code;

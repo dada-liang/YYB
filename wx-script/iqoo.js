@@ -8,7 +8,7 @@ cron: 30 8 * * *
 #Notice:
 变量名 iqoo
 变量值：YYB服务器地址@账号ID或OpenID，多账户&或换行
-需要配置：wx_server_url、wx_auth
+账号来源：环境变量 YYB_SERVER（服务器地址@账号ID或OpenID）
 
 ⚠️【免责声明】
 ------------------------------------------
@@ -42,13 +42,14 @@ const defaultUserAgent = USER_AGENT;
 function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
-    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
-    const identity = at > 0 ? text.slice(at + 1) : text;
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1);
     const hash = identity.indexOf("#");
     const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
     const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
-    const value = rawServer.trim().replace(/\/+$/, "");
-    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    if (!rawServer || !ref) return null;
+    const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, ref, openid: ref, remark };
 }
 
@@ -91,10 +92,10 @@ class Task {
     constructor(env) {
         this.index = $.userIdx++;
         this.user = String(env || "").trim().split(strSplitor);
-        this.yybAccount = parseAccount(env);
-        this.openid = this.yybAccount.openid;
+        this.yybAccount = parseAccount(env) || {};
+        this.openid = this.yybAccount.openid || "";
         this.cacheId = yybCacheKey(this.yybAccount.server, this.yybAccount.ref);
-        this.wechat = new WeChatServer({ url: this.yybAccount.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" });
+        this.wechat = this.yybAccount.server ? new WeChatServer({ url: this.yybAccount.server, appid: MINI_APP_ID, auth: process.env.wx_auth || "" }) : null;
         this.token = "";
         this.refreshToken = "";
         this.userId = "";
@@ -105,6 +106,10 @@ class Task {
     }
 
     async run() {
+        if (!this.yybAccount.ref) {
+            $.log(`账号[${this.index}] ❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID）`);
+            return;
+        }
         const cached = this.getCachedToken();
         if (cached?.accessToken) {
             this.applyToken(cached);
@@ -225,16 +230,15 @@ class Task {
     }
 
     async getOperateData() {
-        const infoResponse = await this.wechat.getUserInfo(this.yybAccount.ref);
-        const envelope = infoResponse.data?.data || {};
-        let userInfo = envelope.user_info || envelope.userInfo || envelope.result || envelope;
-        if (typeof userInfo === "string") { try { userInfo = JSON.parse(userInfo); } catch { userInfo = {}; } }
-        let raw = userInfo?.raw || {};
+        const phoneResponse = await this.wechat.getPhoneNumber(this.yybAccount.ref);
+        let phoneData = phoneResponse.data?.data || {};
+        if (typeof phoneData === "string") { try { phoneData = JSON.parse(phoneData); } catch { phoneData = {}; } }
+        let raw = phoneData?.raw || {};
         if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
-        const encryptedData = userInfo?.encryptedData || userInfo?.encrypted_data || raw.encryptedData || raw.encrypted_data || "";
-        const iv = userInfo?.iv || raw.iv || "";
+        const encryptedData = phoneData?.encryptedData || phoneData?.encrypted_data || raw.encryptedData || raw.encrypted_data || "";
+        const iv = phoneData?.iv || raw.iv || "";
         if (!encryptedData || !iv) {
-            throw new Error(`YYB /wx/getuserinfo 未返回原登录接口所需的 encryptedData/iv: ${JSON.stringify(userInfo)}`);
+            throw new Error(`YYB /wxapp/getPhoneNumber 未返回原登录接口所需的 encryptedData/iv: ${JSON.stringify(phoneData)}`);
         }
         const loginResponse = await this.wechat.getCode(this.yybAccount.ref);
         if (loginResponse.data?.openid) {
@@ -394,8 +398,11 @@ class Task {
 
 !(async () => {
     await getNotice();
-    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
-    $.checkEnv(ckName);
+    $.checkEnv("YYB_SERVER");
+    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
+    $.userCount = $.userList.length;
+    if (!$.userCount) { $.log(`未找到变量 YYB_SERVER 或 ${ckName}`); return; }
 
     for (const user of $.userList) {
         await new Task(user).run();

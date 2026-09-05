@@ -72,8 +72,8 @@ async function getWxCode(server, appid, openid) {
         headers: { "content-type": "application/json" },
         data: { ref: openid, app_id: appid },
     });
-    const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
-    if (status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败 HTTP ${status}: ${short(data)}`);
+    const code = data?.data?.result?.code || data?.result?.code;
+    if (status < 200 || status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败 HTTP ${status}: ${short(data)}`);
     return code;
 }
 
@@ -176,7 +176,8 @@ class FeiheMom {
 function parseYYBAccount(raw = "") {
     const text = String(raw).trim(); const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const server = text.slice(0, at).trim().replace(/\/$/, ""); const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
+    const server = text.slice(0, at).trim().replace(/\/+$/, "");
+    const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
     return { server: /^https?:\/\//i.test(server) ? server : `http://${server}`, openid, remark: remark || "" };
 }
 

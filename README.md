@@ -65,49 +65,69 @@ yyb-go:8000@2#微信二
 
 目录：`wx-script/`
 
-| 脚本 | 文件名 |
-| --- | --- |
-| 爱裹旧衣回收 | `aiguo.js` |
-| 爱果乐之家 | `aiguoyue.js` |
-| 安吉尔会员 | `ajier.js` |
-| Babycare 官方旗舰店 | `babycare.js` |
-| 白马智选 | `baimazhixuan.js` |
-| BLUE DASH 布鲁大师 | `bluedash.js` |
-| 宝妈上班 | `bmsb.js` |
-| 倍轻松签到 | `bqs.js` |
-| 比亚迪海洋签到 | `bydhy.js` |
-| 骆驼 CAMEL | `camel.js` |
-| 金巴厘杯中空间 | `campari.js` |
-| CASETiFY | `casetify.js` |
-| 臭宝乐园 | `choubao.js` |
-| 七彩虹 | `colorful.js` |
-| 大参林小程序签到 | `dasenlin.js` |
-| 铛铛一下 | `ddyx.js` |
-| 巅峰美缝师 | `dfmfs.js` |
-| 东风日产 | `dfrc.js` |
-| 袋鼠妈妈会员商城 | `dsmmhy.js` |
-| 都市甜心 | `dstx.js` |
-| 得物种树 | `dw.js` |
-| 发发藏宝洞 | `fafa.js` |
-| 飞鹤微信小程序 | `feihe.js` |
-| 敷尔佳 | `fej.js` |
-| 飞鹤星妈会 | `fhxmh.js` |
-| 飞蚂蚁旧衣回收 | `fmy.js` |
-| 逢三得利吧 | `fsdlb.js` |
-| 复游会 | `fuyouhui.js` |
-| demogic 会员签到 | `hxek.js` |
-| iQOO 社区 | `iqoo.js` |
-| iyouke 平台签到 | `iyouke.js` |
-| 加多宝 Club | `jdbclub.js` |
-| 京东 Code 采集 | `jdcode.js` |
-| 金典有机生活 | `jdyj.js` |
-| jingjianx 统一签到 | `jingjianx_all.js` |
-| 劲友家 | `jingyoujia.js` |
-| 嘉立创 | `jlc.js` |
-| 杰士邦会员中心 | `jsb.js` |
-| 康师傅畅饮社 | `kangshifu.js` |
-| 提现笔笔省领券 | `wxzf.js` |
-| 提现免费券 | `提现免费券.py` |
+| 脚本 | 文件名 | 修改日期 |
+| --- | --- | --- |
+| 爱裹旧衣回收 | `aiguo.js` | 2026-09-05 |
+| 爱果乐之家 | `aiguoyue.js` | 2026-09-05 |
+| 爱玛会员俱乐部 | `aima.js` | 2026-09-05 |
+| 安吉尔会员 | `ajier.js` | 2026-09-05 |
+| 爱康会员签到 | `ardywj.js` | 2026-09-05 |
+| Babycare 官方旗舰店 | `babycare.js` | 2026-09-05 |
+| 白马智选 | `baimazhixuan.js` | 2026-09-05 |
+| 北京环球签到 | `bjhqbwz.py` | 2026-09-05 |
+| BLUE DASH 布鲁大师 | `bluedash.js` | 2026-09-05 |
+| 宝妈上班 | `bmsb.js` | 2026-09-05 |
+| 倍轻松签到 | `bqs.js` | 2026-09-05 |
+| BREO | `BREO.py` | 2026-09-05 |
+| 比亚迪海洋签到 | `bydhy.js` | 2026-09-05 |
+| 骆驼 CAMEL | `camel.js` | 2026-09-05 |
+| 金巴厘杯中空间 | `campari.js` | 2026-09-05 |
+| CASETiFY | `casetify.js` | 2026-09-05 |
+| 臭宝乐园 | `choubao.js` | 2026-09-05 |
+| 七彩虹 | `colorful.js` | 2026-09-05 |
+| 大参林小程序签到 | `dasenlin.js` | 2026-09-05 |
+| 铛铛一下 | `ddyx.js` | 2026-09-05 |
+| 巅峰美缝师 | `dfmfs.js` | 2026-09-05 |
+| 东风日产 | `dfrc.js` | 2026-09-05 |
+| 袋鼠妈妈会员商城 | `dsmmhy.js` | 2026-09-05 |
+| 都市甜心 | `dstx.js` | 2026-09-05 |
+| DT生活签到 | `dtsh.js` | 2026-09-05 |
+| 得物种树 | `dw.js` | 2026-09-05 |
+| 发发藏宝洞 | `fafa.js` | 2026-09-05 |
+| 飞鹤微信小程序 | `feihe.js` | 2026-09-05 |
+| 敷尔佳 | `fej.js` | 2026-09-05 |
+| 飞鹤星妈会 | `fhxmh.js` | 2026-09-05 |
+| 飞蚂蚁旧衣回收 | `fmy.js` | 2026-09-05 |
+| 逢三得利吧 | `fsdlb.js` | 2026-09-05 |
+| 复游会 | `fuyouhui.js` | 2026-09-05 |
+| 一汽丰田丰享汇 | `fxh.js` | 2026-09-05 |
+| 风云再起北京 | `fyzq.js` | 2026-09-05 |
+| 广汽丰田新能源签到 | `gac.js` | 2026-09-05 |
+| 顾家小程序签到 | `gujiajiaju.js` | 2026-09-05 |
+| 谷雨小程序 | `guyu.js` | 2026-09-05 |
+| 国乐酱酒 | `gyjj.js` | 2026-09-05 |
+| 海尔智家签到 | `haier.js` | 2026-09-05 |
+| 海天美味馆 | `haitian.js` | 2026-09-05 |
+| 海信爱家 | `hisense_aijia.js` | 2026-09-05 |
+| 活力伊利 | `hlyili.js` | 2026-09-05 |
+| 海澜之家 | `hlzj.js` | 2026-09-05 |
+| 红色火箭 | `hongsehuojian.py` | 2026-09-05 |
+| 厚工坊 | `hougongfang.js` | 2026-09-05 |
+| 好人家 | `hrj.js` | 2026-09-05 |
+| 华住会 | `huazhu.js` | 2026-09-05 |
+| demogic 会员签到 | `hxek.js` | 2026-09-05 |
+| iQOO 社区 | `iqoo.js` | 2026-09-05 |
+| iyouke 平台签到 | `iyouke.js` | 2026-09-05 |
+| 加多宝 Club | `jdbclub.js` | 2026-09-05 |
+| 京东 Code 采集 | `jdcode.js` | 2026-09-05 |
+| 金典有机生活 | `jdyj.js` | 2026-09-05 |
+| jingjianx 统一签到 | `jingjianx_all.js` | 2026-09-05 |
+| 劲友家 | `jingyoujia.js` | 2026-09-05 |
+| 嘉立创 | `jlc.js` | 2026-09-05 |
+| 杰士邦会员中心 | `jsb.js` | 2026-09-05 |
+| 康师傅畅饮社 | `kangshifu.js` | 2026-09-05 |
+| 提现笔笔省领券 | `wxzf.js` | 2026-09-05 |
+| 提现免费券 | `提现免费券.py` | 2026-09-05 |
 
 ## 微信适配模块
 

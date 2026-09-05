@@ -60,7 +60,7 @@ function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const server = text.slice(0, at).trim().replace(/\/$/, "");
+    const server = text.slice(0, at).trim().replace(/\/+$/, "");
     const [openid, remark] = text.slice(at + 1).split("#").map((s) => (s || "").trim());
     return {
         server: /^https?:\/\//i.test(server) ? server : `http://${server}`,
@@ -116,8 +116,8 @@ class Task {
             headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
         });
         const data = res.data || {};
-        const code = data?.result?.code || data?.data?.result?.code || data?.data?.code || data?.code;
-        if (res.status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (res.status < 200 || res.status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
         return code;
     }
 
@@ -291,7 +291,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) {
         $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
         return;

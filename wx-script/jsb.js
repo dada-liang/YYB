@@ -7,8 +7,7 @@ cron: 49 8 * * *
 变量值：YYB服务器地址@账号ID或OpenID，多账号用 & 或换行分隔（可加 #备注）
 
 依赖变量：
-wx_server_url  默认 http://192.168.31.196:8787
-wx_auth        必填，wx_server 鉴权值
+YYB_SERVER     服务器地址@账号ID或OpenID，多账号换行或 & 分隔（可加 #备注）
 ------------------------------------------
 契约（appid wx5966681b4a895dee，host api.vshop.hchiv.cn，海氏海诺 vshop 会员中台）：
 （迁移自 YYB-GO 系脚本；原脚本已是 code 登录 + 纯 JSON 请求，无加密无签名）
@@ -47,13 +46,14 @@ const EP_SIGN = "/cloud/activity/sign/add-sign";
 function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
-    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
-    const identity = at > 0 ? text.slice(at + 1) : text;
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1);
     const hash = identity.indexOf("#");
     const ref = (hash >= 0 ? identity.slice(0, hash) : identity).trim();
     const remark = (hash >= 0 ? identity.slice(hash + 1) : "").trim();
-    const value = rawServer.trim().replace(/\/+$/, "");
-    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    if (!rawServer || !ref) return null;
+    const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, ref, openid: ref, remark };
 }
 
@@ -80,10 +80,10 @@ function short(v, n = 200) {
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw);
+        this.account = parseAccount(raw) || {};
         this.openid = this.account.openid;
         this.cacheId = yybCacheKey(this.account.server, this.account.ref);
-        this.wechat = new WeChatServer({ url: this.account.server, appid: APP.appid, auth: process.env.wx_auth || "" });
+        this.wechat = this.account.server ? new WeChatServer({ url: this.account.server, appid: APP.appid, auth: process.env.wx_auth || "" }) : null;
         this.global = { appId: APP.appid, openId: "", unionid: "", shopNick: "", mainShopNick: "", jsession: "", clientToken: "", securePlatId: "", phoneNumber: "" };
     }
     log(text) {
@@ -157,7 +157,7 @@ class Task {
         this.log(`❌ 签到失败: ${signMsg || short(signBody)}`);
     }
     async run() {
-        if (!this.account.openid) { this.log("跳过：变量值里没有 openid"); return; }
+        if (!this.account.ref) { this.log("❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID）"); return; }
         try {
             await this.login();
             await this.sign();
@@ -168,9 +168,11 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
-    $.checkEnv(ckName);
-    if (!$.userCount) { $.log(`未找到变量 ${ckName}`); return; }
+    $.checkEnv("YYB_SERVER");
+    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
+    $.userCount = $.userList.length;
+    if (!$.userCount) { $.log(`未找到变量 YYB_SERVER 或 ${ckName}`); return; }
     for (let i = 0; i < $.userList.length; i++) {
         await new Task($.userList[i]).run();
         if (i < $.userList.length - 1) await $.wait(1500, 3000);

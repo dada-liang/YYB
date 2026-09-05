@@ -11,8 +11,7 @@ cron: 39 8 * * *
        例：http://127.0.0.1:8787@1#wx00796053aa93af0c#KSOEUR
 
 依赖变量：
-wx_server_url  默认 http://192.168.31.196:8787
-wx_auth        必填，wx_server 鉴权值
+YYB_SERVER     每行：服务器地址@账号ID或OpenID#appid[#备注]，多账号换行或 & 分隔
 ------------------------------------------
 契约（host smp-api.iyouke.com，所有路径都带 /dtapi 前缀）：
 
@@ -83,11 +82,12 @@ function writeCache(cache) {
 function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
-    const rawServer = at > 0 ? text.slice(0, at) : process.env.wx_server_url || "http://192.168.31.196:8787";
-    const identity = at > 0 ? text.slice(at + 1) : text;
+    if (at <= 0) return null;
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
+    const identity = text.slice(at + 1);
     const [openid, appid, ...remarks] = identity.split("#").map((s) => (s || "").trim());
-    const value = rawServer.trim().replace(/\/+$/, "");
-    const server = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    if (!rawServer || !openid) return null;
+    const server = /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`;
     return { server, ref: openid, openid, appid, remark: remarks.join("#") };
 }
 
@@ -102,10 +102,10 @@ const msgOf = (res) => res?.errorMsg || res?.error_msg || res?.message || short(
 class Task {
     constructor(raw) {
         this.index = $.userIdx++;
-        this.account = parseAccount(raw);
+        this.account = parseAccount(raw) || {};
         this.token = "";
         this.unbound = false;
-        this.wechat = new WeChatServer({ url: this.account.server, appid: this.account.appid, auth: process.env.wx_auth || "" });
+        this.wechat = this.account.server ? new WeChatServer({ url: this.account.server, appid: this.account.appid, auth: process.env.wx_auth || "" }) : null;
     }
 
     log(text) {
@@ -254,7 +254,7 @@ class Task {
 
     async run() {
         if (!this.account.openid || !this.account.appid) {
-            this.log("跳过：变量值要写成 YYB服务器地址@账号ID或OpenID#appid[#备注]");
+            this.log("❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID#appid[#备注]）");
             return;
         }
         try {
@@ -267,10 +267,12 @@ class Task {
 }
 
 !(async () => {
-    process.env[ckName] = process.env.YYB_SERVER || process.env[ckName] || "";
-    $.checkEnv(ckName);
+    $.checkEnv("YYB_SERVER");
+    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
+    $.userCount = $.userList.length;
     if (!$.userCount) {
-        $.log(`未找到变量 ${ckName}`);
+        $.log(`未找到变量 YYB_SERVER 或 ${ckName}`);
         return;
     }
     for (let i = 0; i < $.userList.length; i++) {

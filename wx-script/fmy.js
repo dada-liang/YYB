@@ -59,7 +59,8 @@ function writeCache(cache) {
 function parseAccount(raw = "") {
     const text = String(raw).trim(); const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const server = text.slice(0, at).trim().replace(/\/$/, ""); const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
+    const server = text.slice(0, at).trim().replace(/\/+$/, "");
+    const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
     return { server: /^https?:\/\//i.test(server) ? server : `http://${server}`, openid, remark: remark || "" };
 }
 
@@ -127,8 +128,8 @@ class Task {
     /** wcs.getCode 在 status:false 时也 resolve，必须自己判失败，否则取码限流会被误报成登录失败 */
     async getCode() {
         const { status, data } = await axios.post(`${this.account.server}/wxapp/getCode`, { ref: this.account.openid, app_id: MINI_APP_ID }, { headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true });
-        const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
-        if (status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (status < 200 || status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go 取 code 失败: ${short(data)}`);
         return code;
     }
 
@@ -207,7 +208,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) {
         $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
         return;

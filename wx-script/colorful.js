@@ -105,9 +105,9 @@ class Task {
         this.raw = String(env || "").trim();
         this.user = this.raw.split(strSplitor);
         const at = this.user[0].lastIndexOf("@");
-        const rawServer = at > 0 ? this.user[0].slice(0, at).trim().replace(/\/$/, "") : "";
+        const rawServer = (at > 0 ? this.user[0].slice(0, at) : "").trim().replace(/\/+$/, "");
         this.server = /^https?:\/\//i.test(rawServer) ? rawServer : rawServer ? `http://${rawServer}` : "";
-        this.accountId = at > 0 ? this.user[0].slice(at + 1).trim() : this.user[0].trim();
+        this.accountId = at > 0 ? this.user[0].slice(at + 1).trim() : "";
         this.token = "";
         this.refreshToken = "";
         this.openId = "";
@@ -261,8 +261,11 @@ class Task {
         if (!this.server || !this.accountId) throw new Error("YYB_SERVER 格式无效");
         const yybPath = endpoint === "/wx/getphonenumber" ? "/wxapp/getPhoneNumber" : "/wxapp/getCode";
         const { status, data } = await axios.post(`${this.server}${yybPath}`, { ref: this.accountId, app_id: MINI_APP_ID }, { headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true });
-        const code = data?.result?.code || data?.result?.phoneCode || data?.data?.result?.code || data?.data?.result?.phoneCode || data?.data?.code || data?.code;
-        if (status !== 200 || !code || typeof code !== "string") throw new Error(`YYB Go ${yybPath} 未返回 code: ${JSON.stringify(data)}`);
+        const result = data?.data?.result || data?.result || {};
+        let raw = result?.raw || {};
+        if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+        const code = result.code || result.phoneCode || result.phone_code || raw.code || raw.phoneCode || raw.phone_code;
+        if (status < 200 || status >= 300 || Number(data?.code) !== 0 || !code || typeof code !== "string") throw new Error(`YYB Go ${yybPath} 未返回 code: ${JSON.stringify(data)}`);
         return code;
     }
 
@@ -365,7 +368,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) { $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID"); return; }
 
     for (const user of $.userList) {

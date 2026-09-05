@@ -70,7 +70,7 @@ function parseAccount(raw = "") {
     const text = String(raw).trim();
     const at = text.lastIndexOf("@");
     if (at <= 0) return { server: "", openid: "", remark: "" };
-    const rawServer = text.slice(0, at).trim().replace(/\/$/, "");
+    const rawServer = text.slice(0, at).trim().replace(/\/+$/, "");
     const [openid, remark] = text.slice(at + 1).split("#").map((v) => (v || "").trim());
     return { server: /^https?:\/\//i.test(rawServer) ? rawServer : `http://${rawServer}`, openid, remark: remark || "" };
 }
@@ -100,8 +100,8 @@ async function getWxCode(server, openid) {
         }, {
             headers: { "Content-Type": "application/json" }, timeout: 30000, validateStatus: () => true,
         });
-        const code = data?.data?.result?.code || data?.data?.code || data?.result?.code || data?.code;
-        if (status === 200 && code && typeof code === "string") return code;
+        const code = data?.data?.result?.code || data?.result?.code;
+        if (status >= 200 && status < 300 && Number(data?.code) === 0 && code && typeof code === "string") return code;
         lastError = `HTTP ${status}: ${short(data)}`;
     }
     throw new Error(`YYB Go 取 code 失败（已重试）: ${lastError}`);
@@ -339,7 +339,7 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv();
+    $.checkEnv("YYB_SERVER");
     if (!$.userCount) {
         $.log("未配置 YYB_SERVER，格式：yyb-go:8000@账号ID或OpenID");
         return;
