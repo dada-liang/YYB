@@ -33,7 +33,8 @@ ql repo "https://github.com/dada-liang/YYB.git" "^wx-script/.*\.(js|py)$" "" "en
   </thead>
   <tbody>
     <tr>
-      <td><pre>axios
+<td><pre>axios
+form-data
 undici
 nodemailer</pre></td>
       <td><pre>requests</pre></td>
@@ -94,6 +95,16 @@ yyb-go:8000@2#微信二
 | 飞蚂蚁旧衣回收 | `fmy.js` |
 | 逢三得利吧 | `fsdlb.js` |
 | 复游会 | `fuyouhui.js` |
+| demogic 会员签到 | `hxek.js` |
+| iQOO 社区 | `iqoo.js` |
+| iyouke 平台签到 | `iyouke.js` |
+| 加多宝 Club | `jdbclub.js` |
+| 京东 Code 采集 | `jdcode.js` |
+| 金典有机生活 | `jdyj.js` |
+| jingjianx 统一签到 | `jingjianx_all.js` |
+| 劲友家 | `jingyoujia.js` |
+| 嘉立创 | `jlc.js` |
+| 杰士邦会员中心 | `jsb.js` |
 | 康师傅畅饮社 | `kangshifu.js` |
 | 提现笔笔省领券 | `wxzf.js` |
 | 提现免费券 | `提现免费券.py` |
@@ -106,6 +117,7 @@ yyb-go:8000@2#微信二
 | --- | --- | --- |
 | 公共运行模块 | `env.js` | 当前微信脚本直接引用 |
 | YYB 微信服务兼容模块 | `wcs.js` | 兼容原微信脚本的调用方式 |
+| YYB 标准接口客户端 | `yyb-client.js` | 统一账号解析、缓存键和标准接口响应提取 |
 | 青龙通知兼容模块 | `sendNotify.js` | 旧版青龙通过推送变量发送运行结果 |
 
 新版青龙会直接使用“系统设置 → 通知设置”，包括 WxPusher 极简推送 SPT；旧版青龙可使用 `WXPUSHER_SPT_LIST` 环境变量。
