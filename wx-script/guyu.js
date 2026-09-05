@@ -282,7 +282,6 @@ class Task {
 }
 
 !(async () => {
-    await getNotice()
     $.checkEnv("YYB_SERVER");
     if ($.userCount) {
         for (let user of $.userList) {
@@ -297,21 +296,3 @@ class Task {
 })()
     .catch((e) => console.log(e))
     .finally(() => $.done());
-
-async function getNotice() {
-    try {
-        let options = {
-            url: `https://ghproxy.net/https://raw.githubusercontent.com/smallfawn/Note/refs/heads/main/Notice.json`,
-            headers: {
-                "User-Agent": defaultUserAgent,
-            },
-            timeout: 3000
-        }
-        let {
-            data: res
-        } = await axios.request(options);
-        $.log(res)
-        return res
-    } catch (e) { }
-
-}
