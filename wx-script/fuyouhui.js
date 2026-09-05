@@ -203,6 +203,16 @@ class Task {
       }
     );
     const payload = response.data || {};
+    const asObject = (value) => {
+      if (value && typeof value === "object") return value;
+      if (typeof value !== "string" || !value.trim()) return null;
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    };
     const sources = [
       payload,
       payload.result,
@@ -214,7 +224,7 @@ class Task {
       payload.result?.raw,
       payload.data?.raw,
       payload.data?.result?.raw,
-    ].filter((value) => value && typeof value === "object");
+    ].map(asObject).filter(Boolean);
     const valueOf = (...names) => {
       for (const source of sources) {
         for (const name of names) {
@@ -228,18 +238,19 @@ class Task {
       iv: valueOf("iv", "IV"),
       encryptedData: valueOf("encryptedData", "encrypted_data"),
     };
-    if (response.status !== 200 || !info.code || !info.iv || !info.encryptedData) {
+    if (response.status !== 200 || !info.iv || !info.encryptedData) {
       throw new Error(`YYB Go 手机号授权数据不完整: HTTP ${response.status} ${JSON.stringify(payload)}`);
     }
     return info;
   }
 
   async loginByOperateData() {
+    const loginCode = this.wxcode || await this.getWxCode();
     const op = await this.getOperateData();
     const data = assertOk(
       await request("post", "/usercenter/online/wxmp/registerWxUserInfo", {
         data: {
-          code: op.code,
+          code: loginCode,
           appChannel: "",
           appKey: "WX_MINI_TC",
           memberCode: "foryouclub_minipro_regs",
