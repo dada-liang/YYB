@@ -220,35 +220,6 @@ def get_random_one_word():
         print(f"获取一言时出错: {e}")
         return "无法获取一言"
 
-def get_proclamation():
-    primary_url = "https://github.com/3288588344/toulu/raw/refs/heads/main/tl.txt"
-    backup_url = "https://tfapi.cn/TL/tl.json"
-    try:
-        response = requests.get(primary_url, timeout=10)
-        if response.status_code == 200:
-            print("\n" + "=" * 50)
-            print("📢 公告信息")
-            print("=" * 35)
-            print(response.text)
-            print("=" * 35 + "\n")
-            print("公告获取成功，开始执行任务...\n")
-            return
-    except requests.exceptions.RequestException as e:
-        print(f"获取公告时发生错误: {e}, 尝试备用链接...")
-
-    try:
-        response = requests.get(backup_url, timeout=10)
-        if response.status_code == 200:
-            print("\n" + "=" * 50)
-            print("📢 公告信息")
-            print("=" * 35)
-            print(response.text)
-            print("=" * 35 + "\n")
-            print("公告获取成功，开始执行任务...\n")
-        else:
-            print(f"⚠️ 获取公告失败，状态码: {response.status_code}")
-    except requests.exceptions.RequestException as e:
-        print(f"⚠️ 获取公告时发生错误: {e}, 可能是网络问题或链接无效。")
 
 def post_to_breo(token, content, title):
     url = "https://breoplus.breo.cn/breo-app/communityBaseInfo/releasePost"
@@ -371,9 +342,6 @@ def punch_in(token):
         print(f"❌ 请求错误: {e}")
 
 if __name__ == "__main__":
-    # 获取公告
-    #get_proclamation()
-
     # 从环境变量 YYB_SERVER 读取账号（服务器地址@账号ID或OpenID）
     raw = os.getenv("YYB_SERVER", "")
     accounts = []
