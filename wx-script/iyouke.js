@@ -6,12 +6,16 @@ cron: 39 8 * * *
 ------------------------------------------
 变量名：iyouke
 变量值：YYB服务器地址@账号ID或OpenID#appid[#备注]，一行一个店铺，多行或 & 分隔
+       （原 openid#appid 格式的 YYB 版：第一段换成 服务器地址@账号，其余不变）
        账号ID或OpenID = YYB 里的账号标识（同一个账号能给所有 appid 取码）
        appid   = 该店铺小程序的 appid（同时作为必需的 appId 请求头）
        例：http://127.0.0.1:8787@1#wx00796053aa93af0c#KSOEUR
 
 依赖变量：
-YYB_SERVER     每行：服务器地址@账号ID或OpenID#appid[#备注]，多账号换行或 & 分隔
+iyouke         主输入（原脚本变量）：每行 服务器地址@账号ID或OpenID#appid[#备注]
+YYB_SERVER     可选补充：一键同步的 服务器地址@账号ID或OpenID 行，配合 iyouke_appid
+               补上店铺 appid 后并入；组不出 账号+店铺 的行自动跳过，不报错
+iyouke_appid   可选，默认店铺 appid（供 YYB_SERVER 行补齐；单店铺场景配这一个即可）
 ------------------------------------------
 契约（host smp-api.iyouke.com，所有路径都带 /dtapi 前缀）：
 
@@ -50,6 +54,8 @@ const path = require("path");
 const WeChatServer = require("./wcs.js");
 
 const ckName = "iyouke";
+// 默认店铺 appid：仅用于给 YYB_SERVER 的全局行(服务器地址@账号，无 #appid 段)补齐店铺
+const DEFAULT_APPID = String(process.env.iyouke_appid || "").trim();
 const BASE = "https://smp-api.iyouke.com/dtapi";
 const TOKEN_CACHE_FILE = path.join(__dirname, "iyouke_token_cache.json");
 const USER_AGENT =
@@ -103,6 +109,7 @@ class Task {
     constructor(raw) {
         this.index = $.userIdx++;
         this.account = parseAccount(raw) || {};
+        if (!this.account.appid && this.account.ref) this.account.appid = DEFAULT_APPID;
         this.token = "";
         this.unbound = false;
         this.wechat = this.account.server ? new WeChatServer({ url: this.account.server, appid: this.account.appid, auth: process.env.wx_auth || "" }) : null;
@@ -254,7 +261,7 @@ class Task {
 
     async run() {
         if (!this.account.openid || !this.account.appid) {
-            this.log("❌ YYB_SERVER 格式无效（应为 服务器地址@账号ID或OpenID#appid[#备注]）");
+            this.log("跳过：变量值要写成 YYB服务器地址@账号ID或OpenID#appid[#备注]");
             return;
         }
         try {
@@ -267,13 +274,42 @@ class Task {
 }
 
 !(async () => {
-    $.checkEnv("YYB_SERVER");
-    const manualList = String(process.env[ckName] || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
-    for (const item of manualList) if (!$.userList.includes(item)) $.userList.push(item);
-    $.userCount = $.userList.length;
+    // 主输入：iyouke 变量（原脚本逻辑不变，行内校验仍由 Task 完成）
+    $.checkEnv(ckName);
+    // 补充输入：YYB_SERVER 全局行只在能组出 账号+店铺 时才纳入，
+    // 组不出的行属于其他脚本，静默跳过，不当成本脚本的格式错误
+    const yybList = String(process.env.YYB_SERVER || "").split(/\r?\n|&/).map((item) => item.trim()).filter(Boolean);
+    const mainCount = $.userList.length;
+    const seen = new Set();
+    const entries = [];
+    let skippedYYB = 0;
+    const identityOf = (item) => {
+        const parsed = parseAccount(item) || {};
+        const appid = parsed.appid || (parsed.ref ? DEFAULT_APPID : "");
+        return { parsed, appid, key: parsed.ref ? `${yybCacheKey(parsed.server || "", parsed.ref)}#${appid}` : `raw:${item}` };
+    };
+    for (const item of $.userList) {
+        const { key } = identityOf(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        entries.push(item);
+    }
+    for (const item of yybList) {
+        const { parsed, appid, key } = identityOf(item);
+        if (!parsed.ref || !appid) { skippedYYB++; continue; }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        entries.push(item);
+    }
+    $.userList = entries;
+    $.userCount = entries.length;
     if (!$.userCount) {
-        $.log(`未找到变量 YYB_SERVER 或 ${ckName}`);
+        $.log(`未找到变量 ${ckName}；也可用 YYB_SERVER 变量配合 iyouke_appid(店铺appid) 提供账号`);
         return;
+    }
+    if (entries.length > mainCount) $.log(`并入 YYB_SERVER 后共 ${entries.length} 个账号`);
+    if (skippedYYB) {
+        $.log(`提示：YYB_SERVER 有 ${skippedYYB} 行没带店铺 appid（且未配置 iyouke_appid），已跳过；iyouke 平台每行需 服务器地址@账号ID或OpenID#店铺appid`);
     }
     for (let i = 0; i < $.userList.length; i++) {
         await new Task($.userList[i]).run();
